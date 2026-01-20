@@ -1,0 +1,206 @@
+@import "tailwindcss";
+
+:root {
+  /* Tema escuro por padrão */
+  --background: 220 15% 8%; /* Fundo muito escuro */
+  --foreground: 210 40% 96%; /* Texto bem claro */
+  --primary: 142 78% 42%; /* WhatsApp green */
+  --primary-foreground: 0 0% 100%;
+  --secondary: 220 13% 18%;
+  --secondary-foreground: 210 40% 98%;
+  --muted: 217 19% 18%;
+  --muted-foreground: 215 20% 75%;
+  --accent: 142 60% 50%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 62% 45%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 217 19% 22%;
+  --input: 217 19% 20%;
+  --ring: 142 78% 42%;
+  --radius: 0.75rem;
+  --chart-1: 142 76% 42%;
+  --chart-2: 160 60% 45%;
+  --chart-3: 30 80% 55%;
+  --chart-4: 280 65% 60%;
+  --chart-5: 340 75% 55%;
+  --success: 142 76% 42%;
+  --warning: 38 92% 50%;
+  --info: 199 89% 48%;
+  --card: 220 13% 12%;
+  --card-foreground: 210 40% 98%;
+  --popover: 220 13% 12%;
+  --popover-foreground: 210 40% 98%;
+}
+
+.dark {
+  --background: 220 15% 8%;
+  --foreground: 210 40% 96%;
+  --primary: 142 70% 48%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 220 13% 18%;
+  --secondary-foreground: 210 40% 98%;
+  --muted: 217 19% 18%;
+  --muted-foreground: 215 20% 75%;
+  --accent: 142 60% 40%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 62% 45%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 217 19% 22%;
+  --input: 217 19% 20%;
+  --ring: 142 70% 48%;
+  --card: 220 13% 12%;
+  --card-foreground: 210 40% 98%;
+  --popover: 220 13% 12%;
+  --popover-foreground: 210 40% 98%;
+}
+
+* {
+  border-color: hsl(var(--border));
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--primary) / 0.7) hsl(var(--muted));
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: hsl(var(--muted));
+  border-radius: 8px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: hsl(var(--primary) / 0.7);
+  border-radius: 8px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--primary));
+}
+
+body {
+  background: linear-gradient(135deg,
+    hsl(var(--background)) 0%,
+    hsl(220 15% 10%) 50%,
+    hsl(var(--background)) 100%);
+  color: hsl(var(--foreground));
+  min-height: 100vh;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* Forçar tema escuro globalmente */
+html {
+  color-scheme: dark;
+}
+
+/* Beautiful animations */
+@keyframes slideIn {
+  from {
+    transform: translateY(10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.animate-slide-in {
+  animation: slideIn 0.3s ease-out;
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out;
+}
+
+.animate-pulse-slow {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+/* Card hover effects */
+.card-hover {
+  transition: all 0.3s ease;
+}
+
+.card-hover:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+}
+
+/* Glass effect para tema escuro */
+.glass {
+  background: rgba(30, 30, 35, 0.85);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.glass-dark {
+  background: rgba(20, 20, 25, 0.9);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* Gradient text com melhor contraste */
+.gradient-text {
+  background: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--accent)) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-weight: 600;
+}
+
+/* Smooth transitions */
+* {
+  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+}
+
+/* Garantir contraste em todos os textos */
+.text-muted-foreground {
+  color: hsl(var(--muted-foreground)) !important;
+}
+
+.text-foreground {
+  color: hsl(var(--foreground)) !important;
+}
+
+/* Ajustar badges e cards para melhor visibilidade */
+.badge {
+  font-weight: 500;
+}
+
+/* Inputs com melhor contraste */
+input, textarea, select {
+  background: hsl(var(--input));
+  color: hsl(var(--foreground));
+  border-color: hsl(var(--border));
+}
+
+input:focus, textarea:focus, select:focus {
+  border-color: hsl(var(--primary));
+  outline: 2px solid hsl(var(--primary) / 0.2);
+  outline-offset: 2px;
+}
+
+/* Botões com melhor contraste */
+button:not(.bg-primary):not(.bg-destructive) {
+  color: hsl(var(--foreground));
+}
+
+/* Modais e dialogs */
+[role="dialog"] {
+  background: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+}

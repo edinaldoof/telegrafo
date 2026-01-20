@@ -1,0 +1,438 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Configurações da Evolution API
+model Config {
+  id                  Int       @id @default(autoincrement())
+  evolutionApiUrl     String    @map("evolution_api_url")
+  evolutionApiKey     String    @map("evolution_api_key")
+  instanceName        String    @map("instance_name") @unique
+  nomePadraoGrupo     String    @default("Grupo") @map("nome_padrao_grupo")
+  capacidadeMaxima    Int       @default(256) @map("capacidade_maxima")
+  ativo               Boolean   @default(true)
+  criadoEm            DateTime  @default(now()) @map("criado_em")
+  atualizadoEm        DateTime  @updatedAt @map("atualizado_em")
+
+  @@map("configuracoes")
+}
+
+// Grupos WhatsApp gerenciados
+model Grupo {
+  id                  Int         @id @default(autoincrement())
+  whatsappGroupId     String?     @unique @map("whatsapp_group_id") // ID do grupo no WhatsApp (pode ser null se ainda não foi criado)
+  numeroGrupo         Int         @map("numero_grupo") // 1, 2, 3, 4...
+  nome                String      // "Grupo 1", "Grupo 2", etc
+  linkConvite         String?     @map("link_convite")
+  totalMembros        Int         @default(0) @map("total_membros")
+  capacidadeMaxima    Int         @default(256) @map("capacidade_maxima")
+  status              String      @default("ativo") // "ativo", "cheio", "arquivado"
+  ehGrupoAtual        Boolean     @default(false) @map("eh_grupo_atual") // Grupo que está recebendo novos membros
+  criadoEm            DateTime    @default(now()) @map("criado_em")
+  atualizadoEm        DateTime    @updatedAt @map("atualizado_em")
+
+  // Relações
+  contatos            Contato[]
+  logs                LogEvento[]
+  filaEnvio           FilaEnvio[]
+
+  @@index([status])
+  @@index([ehGrupoAtual])
+  @@index([numeroGrupo])
+  @@map("grupos")
+}
+
+// Contatos/Participantes
+model Contato {
+  id                  Int       @id @default(autoincrement())
+  numeroWhatsapp      String    @map("numero_whatsapp") // Formato: 5511999999999
+  nomeContato         String?   @map("nome_contato")
+  email               String?
+  empresa             String?
+  cargo               String?
+  dadosExtras         Json?     @map("dados_extras") // Campos personalizados
+  grupoId             Int?      @map("grupo_id")
+  dataAdicao          DateTime  @default(now()) @map("data_adicao")
+  ativo               Boolean   @default(true)
+
+  // Relações
+  grupo               Grupo?    @relation(fields: [grupoId], references: [id], onDelete: SetNull)
+  tags                ContatoTag[]
+
+  @@index([numeroWhatsapp])
+  @@index([grupoId])
+  @@map("contatos")
+}
+
+// Mensagens enviadas
+model Mensagem {
+  id                  Int       @id @default(autoincrement())
+  tipo                String    // "texto", "imagem", "video", "documento", "audio"
+  conteudo            String?   @db.Text // Texto da mensagem (se tipo = texto)
+  caminhoArquivo      String?   @map("caminho_arquivo") // Path do arquivo (se mídia)
+  nomeArquivo         String?   @map("nome_arquivo") // Nome original do arquivo
+  mimeType            String?   @map("mime_type") // Tipo MIME do arquivo
+  grupoIds            Int[]     @map("grupo_ids") // Array de IDs dos grupos que receberam
+  totalGrupos         Int       @map("total_grupos")
+  totalEnviados       Int       @default(0) @map("total_enviados")
+  totalErros          Int       @default(0) @map("total_erros")
+  status              String    @default("pendente") // "pendente", "enviando", "concluido", "erro"
+  enviadoEm           DateTime  @default(now()) @map("enviado_em")
+
+  // Relações
+  filaEnvio           FilaEnvio[]
+
+  @@index([status])
+  @@index([enviadoEm])
+  @@map("mensagens")
+}
+
+// Fila de envio (para processar mensagens em massa)
+model FilaEnvio {
+  id                  Int       @id @default(autoincrement())
+  mensagemId          Int       @map("mensagem_id")
+  grupoId             Int       @map("grupo_id")
+  status              String    @default("pendente") // "pendente", "enviando", "enviado", "erro"
+  tentativas          Int       @default(0)
+  erroMensagem        String?   @db.Text @map("erro_mensagem")
+  enviadoEm           DateTime? @map("enviado_em")
+  criadoEm            DateTime  @default(now()) @map("criado_em")
+
+  // Relações
+  mensagem            Mensagem  @relation(fields: [mensagemId], references: [id], onDelete: Cascade)
+  grupo               Grupo     @relation(fields: [grupoId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([mensagemId])
+  @@index([grupoId])
+  @@map("fila_envio")
+}
+
+// Logs de eventos (auditoria)
+model LogEvento {
+  id                  Int       @id @default(autoincrement())
+  tipo                String    // "login", "logout", "grupo_criado", "contato_adicionado", "mensagem_enviada", "config_alterada", "erro"
+  grupoId             Int?      @map("grupo_id")
+  descricao           String    @db.Text
+  dadosJson           Json?     @map("dados_json")
+  usuario             String?   // Nome do usuário que executou a ação
+  ip                  String?   // IP da requisição
+  userAgent           String?   @map("user_agent") // Browser/dispositivo
+  criadoEm            DateTime  @default(now()) @map("criado_em")
+
+  // Relações
+  grupo               Grupo?    @relation(fields: [grupoId], references: [id], onDelete: SetNull)
+
+  @@index([tipo])
+  @@index([criadoEm])
+  @@index([usuario])
+  @@map("logs_eventos")
+}
+
+// Providers de API WhatsApp
+model Provider {
+  id                  Int       @id @default(autoincrement())
+  nome                String    // "Evolution API", "WhatsApp Business Cloud API"
+  tipo                String    // "evolution", "cloudapi"
+  config              Json      // Configurações específicas do provider
+  ativo               Boolean   @default(true)
+  criadoEm            DateTime  @default(now()) @map("criado_em")
+  atualizadoEm        DateTime  @updatedAt @map("atualizado_em")
+
+  // Relações
+  templates           Template[]
+
+  @@map("providers")
+}
+
+// Templates de mensagem
+model Template {
+  id                  Int       @id @default(autoincrement())
+  nome                String
+  descricao           String?   @db.Text
+  conteudo            String    @db.Text // Texto com variáveis: "Olá {{nome}}, seja bem-vindo!"
+  tipo                String    @default("texto") // "texto", "imagem", "video", "documento", "misto"
+  categoria           String?   // "saudacao", "promocao", "lembrete", etc
+  providerId          Int?      @map("provider_id") // null = ambos, senão específico para um provider
+  mediaUrl            String?   @map("media_url") // URL da mídia principal (legacy)
+  ativo               Boolean   @default(true)
+  criadoEm            DateTime  @default(now()) @map("criado_em")
+  atualizadoEm        DateTime  @updatedAt @map("atualizado_em")
+
+  // Relações
+  provider            Provider?  @relation(fields: [providerId], references: [id], onDelete: SetNull)
+  variaveis           TemplateVariavel[]
+  agendamentos        Agendamento[]
+  anexos              TemplateAnexo[]
+
+  @@index([ativo])
+  @@index([tipo])
+  @@map("templates")
+}
+
+// Variáveis dos templates
+model TemplateVariavel {
+  id                  Int       @id @default(autoincrement())
+  templateId          Int       @map("template_id")
+  nome                String    // "nome", "empresa", "data", etc
+  exemplo             String?   // Exemplo de valor para preview
+  obrigatorio         Boolean   @default(false)
+
+  // Relações
+  template            Template  @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@map("template_variaveis")
+}
+
+// Anexos dos templates (múltiplos arquivos)
+model TemplateAnexo {
+  id                  Int       @id @default(autoincrement())
+  templateId          Int       @map("template_id")
+  tipo                String    // "imagem", "video", "audio", "documento"
+  nome                String    // Nome do arquivo
+  url                 String    // URL pública do arquivo
+  mimeType            String?   @map("mime_type")
+  tamanho             Int?      // Tamanho em bytes
+  ordem               Int       @default(0) // Ordem de exibição
+  legenda             String?   @db.Text // Legenda/caption para o anexo
+  criadoEm            DateTime  @default(now()) @map("criado_em")
+
+  // Relações
+  template            Template  @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@index([templateId])
+  @@index([tipo])
+  @@map("template_anexos")
+}
+
+// Agendamentos de mensagens
+model Agendamento {
+  id                  Int       @id @default(autoincrement())
+  titulo              String
+  templateId          Int?      @map("template_id")
+  conteudoPersonalizado String? @db.Text @map("conteudo_personalizado") // Se não usar template
+  contatosIds         Int[]     @map("contatos_ids") // IDs dos contatos selecionados
+  filtros             Json?     // Filtros usados para seleção
+  attachmentId        Int?      @map("attachment_id") // Anexo opcional
+  dataAgendamento     DateTime  @map("data_agendamento")
+  fusoHorario         String    @default("America/Sao_Paulo") @map("fuso_horario")
+  status              String    @default("pendente") // "pendente", "executando", "concluido", "cancelado", "erro"
+  resultado           Json?     // Resultado da execução
+  criadoEm            DateTime  @default(now()) @map("criado_em")
+  executadoEm         DateTime? @map("executado_em")
+
+  // Relações
+  template            Template?  @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  attachment          Attachment? @relation(fields: [attachmentId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([dataAgendamento])
+  @@map("agendamentos")
+}
+
+// Anexos/Mídia
+model Attachment {
+  id                  Int       @id @default(autoincrement())
+  nomeArquivo         String    @map("nome_arquivo")
+  caminhoLocal        String?   @map("caminho_local") // Path local se armazenado localmente
+  url                 String?   // URL pública (S3, CDN, etc)
+  tipoMime            String    @map("tipo_mime")
+  tamanho             BigInt    // Tamanho em bytes
+  largura             Int?      // Para imagens/vídeos
+  altura              Int?      // Para imagens/vídeos
+  duracao             Int?      // Para vídeos/áudios (segundos)
+  uploadedEm          DateTime  @default(now()) @map("uploaded_em")
+
+  // Relações
+  agendamentos        Agendamento[]
+
+  @@map("attachments")
+}
+
+// Tags para organização de contatos
+model Tag {
+  id                  Int       @id @default(autoincrement())
+  nome                String    @unique
+  cor                 String?   // Hex color para UI
+  descricao           String?   @db.Text
+  criadoEm            DateTime  @default(now()) @map("criado_em")
+
+  // Relações
+  contatos            ContatoTag[]
+
+  @@map("tags")
+}
+
+// Relação many-to-many entre Contatos e Tags
+model ContatoTag {
+  contatoId           Int       @map("contato_id")
+  tagId               Int       @map("tag_id")
+  criadoEm            DateTime  @default(now()) @map("criado_em")
+
+  // Relações
+  contato             Contato   @relation(fields: [contatoId], references: [id], onDelete: Cascade)
+  tag                 Tag       @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([contatoId, tagId])
+  @@map("contato_tags")
+}
+
+// Instâncias WhatsApp (Evolution API)
+model Instance {
+  id                  Int       @id @default(autoincrement())
+  instanceName        String    @unique @map("instance_name") // Nome único da instância
+  displayName         String?   @map("display_name") // Nome para exibição
+  numero              String?   // Número conectado (após QR Code)
+  status              String    @default("disconnected") // "disconnected", "connecting", "connected", "qr"
+  qrCode              String?   @db.Text @map("qr_code") // QR Code base64 (temporário)
+  qrCodeUrl           String?   @map("qr_code_url") // URL do QR Code
+  profilePicUrl       String?   @map("profile_pic_url") // Foto de perfil do número
+
+  // Configurações da instância
+  config              Json?     // reject_call, msg_call, always_online, etc
+
+  // Webhooks
+  webhookUrl          String?   @map("webhook_url")
+  webhookByEvents     Boolean   @default(false) @map("webhook_by_events")
+  webhookBase64       Boolean   @default(true) @map("webhook_base64")
+  webhookEvents       String[]  @default([]) @map("webhook_events") // Lista de eventos
+
+  // Integrações
+  chatwootConfig      Json?     @map("chatwoot_config")
+  typebotConfig       Json?     @map("typebot_config")
+  difyConfig          Json?     @map("dify_config")
+  openaiConfig        Json?     @map("openai_config")
+
+  // RabbitMQ/Websocket
+  rabbitmqEnabled     Boolean   @default(false) @map("rabbitmq_enabled")
+  rabbitmqEvents      String[]  @default([]) @map("rabbitmq_events")
+  websocketEnabled    Boolean   @default(false) @map("websocket_enabled")
+  websocketEvents     String[]  @default([]) @map("websocket_events")
+
+  // Estado
+  ativo               Boolean   @default(true)
+  criadoEm            DateTime  @default(now()) @map("criado_em")
+  atualizadoEm        DateTime  @updatedAt @map("atualizado_em")
+  ultimaConexao       DateTime? @map("ultima_conexao")
+
+  // Relações
+  mensagensEnviadas   MensagemInstance[]
+  webhooks            Webhook[]
+
+  @@index([status])
+  @@index([ativo])
+  @@map("instances")
+}
+
+// Webhooks configurados
+model Webhook {
+  id                  Int       @id @default(autoincrement())
+  instanceId          Int       @map("instance_id")
+  evento              String    // "message.received", "connection.update", etc
+  url                 String
+  headers             Json?     // Headers customizados
+  enabled             Boolean   @default(true)
+  tentativas          Int       @default(0)
+  ultimoStatus        Int?      @map("ultimo_status") // HTTP status code
+  ultimoErro          String?   @db.Text @map("ultimo_erro")
+  ultimoDisparo       DateTime? @map("ultimo_disparo")
+  criadoEm            DateTime  @default(now()) @map("criado_em")
+
+  // Relações
+  instance            Instance  @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+
+  @@index([instanceId])
+  @@index([evento])
+  @@map("webhooks")
+}
+
+// Mensagens enviadas por instância (para histórico detalhado)
+model MensagemInstance {
+  id                  Int       @id @default(autoincrement())
+  instanceId          Int       @map("instance_id")
+  tipo                String    // "text", "image", "video", "document", "audio", "sticker"
+  remoteJid           String    @map("remote_jid") // Número/Grupo destinatário
+  conteudo            Json      // Conteúdo completo da mensagem
+  messageId           String?   @map("message_id") // ID retornado pela API
+  status              String    @default("pending") // "pending", "sent", "delivered", "read", "failed"
+  erro                String?   @db.Text
+  metadata            Json?     // Metadata adicional
+  enviadoEm           DateTime  @default(now()) @map("enviado_em")
+
+  // Relações
+  instance            Instance  @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+
+  @@index([instanceId])
+  @@index([status])
+  @@index([remoteJid])
+  @@map("mensagens_instance")
+}
+
+// Integrações - Chatwoot
+model ChatwootIntegration {
+  id                  Int       @id @default(autoincrement())
+  instanceId          Int?      @map("instance_id") // null = configuração global
+  accountId           String    @map("account_id")
+  token               String
+  url                 String
+  signMsg             Boolean   @default(false) @map("sign_msg")
+  reopenConversation  Boolean   @default(false) @map("reopen_conversation")
+  conversationPending Boolean   @default(false) @map("conversation_pending")
+  enabled             Boolean   @default(true)
+  criadoEm            DateTime  @default(now()) @map("criado_em")
+
+  @@map("chatwoot_integrations")
+}
+
+// Integrações - Typebot
+model TypebotIntegration {
+  id                  Int       @id @default(autoincrement())
+  instanceId          Int?      @map("instance_id")
+  url                 String
+  typebot             String    // Nome/ID do typebot
+  expire              Int?      // Tempo de expiração em minutos
+  keywordFinish       String?   @map("keyword_finish")
+  delayMessage        Int?      @map("delay_message") // Delay em ms
+  unknownMessage      String?   @db.Text @map("unknown_message")
+  listeningFromMe     Boolean   @default(false) @map("listening_from_me")
+  enabled             Boolean   @default(true)
+  criadoEm            DateTime  @default(now()) @map("criado_em")
+
+  @@map("typebot_integrations")
+}
+
+// Integrações - OpenAI
+model OpenAIIntegration {
+  id                  Int       @id @default(autoincrement())
+  instanceId          Int?      @map("instance_id")
+  apiKey              String    @map("api_key")
+  model               String    @default("gpt-3.5-turbo") // "gpt-3.5-turbo", "gpt-4", etc
+  maxTokens           Int       @default(1000) @map("max_tokens")
+  temperature         Float     @default(0.7)
+  systemMessage       String?   @db.Text @map("system_message") // Contexto/personalidade
+  enabled             Boolean   @default(true)
+  criadoEm            DateTime  @default(now()) @map("criado_em")
+
+  @@map("openai_integrations")
+}
+
+// Histórico de conexões (auditoria)
+model ConnectionHistory {
+  id                  Int       @id @default(autoincrement())
+  instanceName        String    @map("instance_name")
+  evento              String    // "qr_generated", "connected", "disconnected", "error"
+  detalhes            Json?
+  timestamp           DateTime  @default(now())
+
+  @@index([instanceName])
+  @@index([timestamp])
+  @@map("connection_history")
+}
