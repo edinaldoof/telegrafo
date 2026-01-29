@@ -119,9 +119,9 @@ export function Combobox({
 
       {/* Dropdown */}
       {open && (
-        <div className="absolute z-50 mt-1 w-full rounded-md border border-zinc-700 bg-zinc-900 shadow-lg">
+        <div className="absolute z-50 mt-1 w-full rounded-md border border-gray-200 bg-white shadow-lg">
           {/* Search Input */}
-          <div className="flex items-center border-b border-zinc-700 px-3">
+          <div className="flex items-center border-b border-gray-200 px-3">
             <Search className="h-4 w-4 shrink-0 opacity-50" />
             <input
               ref={inputRef}
@@ -150,8 +150,8 @@ export function Combobox({
                   type="button"
                   onClick={() => handleSelect(option.value)}
                   className={cn(
-                    'relative flex w-full cursor-pointer select-none items-center rounded-sm py-2 pl-8 pr-2 text-sm outline-none hover:bg-zinc-800 focus:bg-zinc-800',
-                    value === option.value && 'bg-zinc-800'
+                    'relative flex w-full cursor-pointer select-none items-center rounded-sm py-2 pl-8 pr-2 text-sm outline-none hover:bg-gray-100 focus:bg-gray-100',
+                    value === option.value && 'bg-gray-100'
                   )}
                 >
                   <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">

@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { sendMedia, isConfigured } from '@/lib/services/twilio.service'
+import { sendMedia, isConfiguredAsync } from '@/lib/services/twilio.service'
 
 export async function POST(request: NextRequest) {
   try {
-    if (!isConfigured()) {
+    if (!(await isConfiguredAsync())) {
       return NextResponse.json(
         { success: false, error: 'Twilio não configurado' },
         { status: 503 }

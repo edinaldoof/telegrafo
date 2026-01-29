@@ -11,7 +11,7 @@ export default function GlobalError({ error, reset }: { error: Error; reset: () 
 
 	return (
 		<html lang="pt-BR">
-			<body className="font-sans dark bg-background text-foreground min-h-screen">
+			<body className="font-sans bg-background text-foreground min-h-screen">
 				<div className="flex min-h-screen items-center justify-center">
 					<div className="max-w-md text-center space-y-3">
 						<h2 className="text-xl font-semibold">Ocorreu um erro</h2>

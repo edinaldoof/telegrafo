@@ -5,7 +5,8 @@ import makeWASocket, {
   WAMessage,
   AnyMessageContent,
   downloadMediaMessage,
-  proto
+  proto,
+  Contact
 } from '@whiskeysockets/baileys'
 import QRCode from 'qrcode'
 import { EventEmitter } from 'events'
@@ -13,6 +14,7 @@ import path from 'path'
 import { prisma } from '../prisma'
 import P from 'pino'
 import fs from 'fs/promises'
+import { contatoService } from './contato.service'
 
 const logger = P({ level: 'silent' })
 
@@ -147,6 +149,19 @@ class BaileysDirectService extends EventEmitter {
 
       sock.ev.on('messages.upsert', (m) => {
         this.emit('messages.upsert', instanceName, m)
+      })
+
+      // Sincronizar contatos do WhatsApp quando recebidos
+      sock.ev.on('contacts.upsert', (contacts: Contact[]) => {
+        this.syncContacts(instanceName, contacts)
+      })
+
+      sock.ev.on('contacts.update', (updates: Partial<Contact>[]) => {
+        // contacts.update traz apenas atualizações parciais
+        const validContacts = updates.filter(c => c.id) as Contact[]
+        if (validContacts.length > 0) {
+          this.syncContacts(instanceName, validContacts)
+        }
       })
 
     } catch (error) {
@@ -641,6 +656,35 @@ class BaileysDirectService extends EventEmitter {
       return url
     } catch (error) {
       return null
+    }
+  }
+
+  /**
+   * Sincronizar contatos recebidos do Baileys com o banco de dados
+   * Ignora contatos de grupo (@g.us), processa apenas contatos individuais (@s.whatsapp.net)
+   */
+  private async syncContacts(instanceName: string, contacts: Contact[]): Promise<void> {
+    try {
+      // Filtrar apenas contatos individuais (ignorar grupos)
+      const individualContacts = contacts.filter(c => {
+        const id = c.id || ''
+        return id.endsWith('@s.whatsapp.net') && !id.endsWith('@g.us')
+      })
+
+      if (individualContacts.length === 0) return
+
+      const contactsToSync = individualContacts.map(c => ({
+        phone: (c.id || '').split('@')[0],
+        name: c.notify || c.name || undefined,
+      })).filter(c => c.phone.length >= 8)
+
+      const result = await contatoService.syncFromWhatsApp(contactsToSync)
+
+      if (result.novos > 0 || result.atualizados > 0) {
+        this.emit('contacts.synced', instanceName, result)
+      }
+    } catch (error) {
+      // Sync silencioso - não interromper a conexão por erro de sync
     }
   }
 }

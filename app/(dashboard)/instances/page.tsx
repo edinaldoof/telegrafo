@@ -12,11 +12,8 @@ import {
   Settings,
   Trash2,
   CheckCircle2,
-  XCircle,
   Clock,
-  AlertCircle,
   MessageSquare,
-  Sparkles,
   Activity,
   Wifi,
   WifiOff,
@@ -181,25 +178,25 @@ export default function InstancesPage() {
         variant: 'success' as const,
         label: 'Conectada',
         icon: Wifi,
-        className: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 border-green-200'
+        className: 'bg-green-100 text-green-800 border-green-200'
       },
       disconnected: {
         variant: 'secondary' as const,
         label: 'Desconectada',
         icon: WifiOff,
-        className: 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200 border-gray-200'
+        className: 'bg-gray-100 text-gray-800 border-gray-200'
       },
       qr: {
         variant: 'warning' as const,
         label: 'Aguardando QR',
         icon: QrCode,
-        className: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200 border-yellow-200'
+        className: 'bg-yellow-100 text-yellow-800 border-yellow-200'
       },
       connecting: {
         variant: 'info' as const,
         label: 'Conectando',
         icon: Clock,
-        className: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 border-blue-200 animate-pulse'
+        className: 'bg-blue-100 text-blue-800 border-blue-200 animate-pulse'
       },
     }
 
@@ -341,7 +338,7 @@ export default function InstancesPage() {
               <CardDescription className="text-sm">Conectadas</CardDescription>
               <Wifi className="h-4 w-4 text-green-500" />
             </div>
-            <CardTitle className="text-3xl font-bold text-green-600 dark:text-green-400">
+            <CardTitle className="text-3xl font-bold text-green-600">
               {stats?.conectadas || 0}
             </CardTitle>
           </CardHeader>
@@ -353,7 +350,7 @@ export default function InstancesPage() {
               <CardDescription className="text-sm">Desconectadas</CardDescription>
               <WifiOff className="h-4 w-4 text-gray-500" />
             </div>
-            <CardTitle className="text-3xl font-bold text-gray-600 dark:text-gray-400">
+            <CardTitle className="text-3xl font-bold text-gray-600">
               {stats?.desconectadas || 0}
             </CardTitle>
           </CardHeader>
@@ -365,7 +362,7 @@ export default function InstancesPage() {
               <CardDescription className="text-sm">Mensagens</CardDescription>
               <Send className="h-4 w-4 text-blue-500" />
             </div>
-            <CardTitle className="text-3xl font-bold text-blue-600 dark:text-blue-400">
+            <CardTitle className="text-3xl font-bold text-blue-600">
               {stats?.totalMensagens || 0}
             </CardTitle>
           </CardHeader>
@@ -374,39 +371,26 @@ export default function InstancesPage() {
 
       {/* CTA Quando não há instâncias */}
       {(!instances || instances.length === 0) && !isLoading && (
-        <Card className="glass border-2 border-primary/30 bg-gradient-to-br from-primary/10 to-accent/10 animate-slide-in">
-          <CardContent className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="rounded-full bg-gradient-to-br from-primary to-accent p-8 mb-6 shadow-2xl">
-              <Smartphone className="h-20 w-20 text-white" />
+        <Card className="border border-primary/20 bg-card animate-slide-in">
+          <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+            <div className="rounded-2xl bg-primary/10 border border-primary/20 p-6 mb-6">
+              <Smartphone className="h-16 w-16 text-primary" />
             </div>
-            <h2 className="text-3xl font-bold gradient-text mb-4">
-              Conecte seu WhatsApp
+            <h2 className="text-2xl font-bold text-gray-500 mb-3">
+              Nenhuma instância configurada
             </h2>
-            <p className="text-lg text-muted-foreground mb-8 max-w-2xl">
-              Comece criando sua primeira instância para enviar mensagens em massa e automatizar seu WhatsApp
+            <p className="text-muted-foreground mb-6 max-w-md">
+              Crie uma instância para conectar seu WhatsApp e começar a enviar mensagens
             </p>
             <Button
               size="lg"
-              className="text-lg px-8 py-6 bg-gradient-to-r from-primary to-accent hover:from-primary/90 hover:to-accent/90 shadow-lg hover:shadow-xl transform hover:scale-105 transition-all"
+              variant="primary"
+              className="px-6"
               onClick={() => setIsCreateOpen(true)}
             >
-              <Sparkles className="mr-2 h-6 w-6" />
-              Criar Minha Primeira Instância
+              <Plus className="mr-2 h-5 w-5" />
+              Criar Instância
             </Button>
-            <div className="mt-8 flex flex-wrap justify-center gap-6 text-sm">
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="h-5 w-5 text-green-600" />
-                <span className="font-medium">100% Gratuito</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="h-5 w-5 text-green-600" />
-                <span className="font-medium">Sem Limites</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="h-5 w-5 text-green-600" />
-                <span className="font-medium">Fácil e Rápido</span>
-              </div>
-            </div>
           </CardContent>
         </Card>
       )}
@@ -520,7 +504,7 @@ export default function InstancesPage() {
                         e.stopPropagation()
                         setInstanceToDelete(instance.instanceName)
                       }}
-                      className="inline-flex items-center justify-center h-8 px-3 text-sm rounded-md bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-100 hover:bg-red-500 hover:text-white transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-offset-2 relative z-50"
+                      className="inline-flex items-center justify-center h-8 px-3 text-sm rounded-md bg-gray-200 text-gray-900 hover:bg-red-500 hover:text-white transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-offset-2 relative z-50"
                       title="Deletar instância"
                       style={{ pointerEvents: 'auto' }}
                     >
@@ -606,11 +590,11 @@ export default function InstancesPage() {
               </ol>
 
               {qrCodeData?.status === 'connected' && (
-                <div className="mt-4 p-4 bg-green-100 dark:bg-green-900 rounded-xl border-2 border-green-500 flex items-center gap-3">
-                  <CheckCircle2 className="h-6 w-6 text-green-600 dark:text-green-400" />
+                <div className="mt-4 p-4 bg-green-100 rounded-xl border-2 border-green-500 flex items-center gap-3">
+                  <CheckCircle2 className="h-6 w-6 text-green-600" />
                   <div>
-                    <p className="text-sm font-bold text-green-900 dark:text-green-100">Conectado com sucesso!</p>
-                    <p className="text-xs text-green-700 dark:text-green-300">Você já pode fechar esta janela</p>
+                    <p className="text-sm font-bold text-green-900">Conectado com sucesso!</p>
+                    <p className="text-xs text-green-700">Você já pode fechar esta janela</p>
                   </div>
                 </div>
               )}

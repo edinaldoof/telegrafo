@@ -96,8 +96,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })
 
     if (!response.ok) {
-      const error = await response.json()
-      throw new Error(error.error || 'Erro ao fazer login')
+      const data = await response.json()
+      // Extrair mensagem de erro do formato da API: { error: { message: "..." } }
+      let errorMessage = 'Usuário ou senha inválidos'
+      if (data?.error?.message) {
+        errorMessage = data.error.message
+      } else if (typeof data?.error === 'string') {
+        errorMessage = data.error
+      } else if (data?.message) {
+        errorMessage = data.message
+      }
+      throw new Error(errorMessage)
     }
 
     const data = await response.json()

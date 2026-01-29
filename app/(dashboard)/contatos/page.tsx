@@ -1,7 +1,7 @@
 'use client'
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Users, Plus, Upload, Download, Loader2, Pencil, Trash2, X, Filter, Tags, FileText } from 'lucide-react'
+import { Users, Plus, Upload, Download, Loader2, Pencil, Trash2, X, Filter, Tags, FileText, RefreshCw, GraduationCap, CheckCircle, Clock, UserPlus } from 'lucide-react'
 import { jsPDF } from 'jspdf'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -43,9 +43,15 @@ export default function ContatosPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isImporting, setIsImporting] = useState(false)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [isSGEDialogOpen, setIsSGEDialogOpen] = useState(false)
   const [editingContato, setEditingContato] = useState<Contato | null>(null)
   const [filtroTag, setFiltroTag] = useState<string>('all')
   const [selectedTags, setSelectedTags] = useState<number[]>([])
+  const [selectedSGEIds, setSelectedSGEIds] = useState<number[]>([])
+  const [sgePage, setSGEPage] = useState(1)
+  const [isBatchTagDialogOpen, setIsBatchTagDialogOpen] = useState(false)
+  const [batchTagId, setBatchTagId] = useState<string>('')
+  const [batchQuantidade, setBatchQuantidade] = useState<string>('100')
 
   // Form state
   const [formData, setFormData] = useState({
@@ -53,6 +59,174 @@ export default function ContatosPage() {
     numeroWhatsapp: '',
     email: '',
     empresa: '',
+  })
+
+  // Buscar estatísticas SGE
+  const { data: sgeStats } = useQuery({
+    queryKey: ['sge-stats'],
+    queryFn: async () => {
+      const res = await fetch('/api/sge/stats')
+      if (!res.ok) return null
+      return res.json()
+    },
+    staleTime: 60000, // 1 minuto
+  })
+
+  // Buscar inscrições SGE (apenas quando dialog está aberto)
+  const { data: sgeData, isLoading: sgeLoading, refetch: refetchSGE } = useQuery({
+    queryKey: ['sge-inscricoes', sgePage],
+    queryFn: async () => {
+      const res = await fetch(`/api/sge/inscricoes?page=${sgePage}&limit=20&apenasNaoImportados=true`)
+      if (!res.ok) return { data: [], total: 0, totalPages: 0 }
+      return res.json()
+    },
+    enabled: isSGEDialogOpen,
+  })
+
+  // Mutation para sincronizar SGE
+  const sincronizarSGEMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch('/api/sge/sincronizar', { method: 'POST' })
+      if (!res.ok) {
+        const error = await res.json()
+        throw new Error(error.error || 'Erro na sincronização')
+      }
+      return res.json()
+    },
+    onSuccess: (data) => {
+      toast.success(`SGE sincronizado: ${data.novos} novos, ${data.atualizados} atualizados`)
+      queryClient.invalidateQueries({ queryKey: ['sge-stats'] })
+      queryClient.invalidateQueries({ queryKey: ['sge-inscricoes'] })
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Erro na sincronização')
+    },
+  })
+
+  // Mutation para importar inscrições SGE como contatos
+  const importarSGEMutation = useMutation({
+    mutationFn: async (ids: number[]) => {
+      const res = await fetch('/api/sge/importar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ inscricaoIds: ids }),
+      })
+      if (!res.ok) {
+        const error = await res.json()
+        throw new Error(error.error || 'Erro na importação')
+      }
+      return res.json()
+    },
+    onSuccess: (data) => {
+      toast.success(`Importado: ${data.importados} novos, ${data.jaExistentes} já existiam`)
+      setSelectedSGEIds([])
+      queryClient.invalidateQueries({ queryKey: ['contatos'] })
+      queryClient.invalidateQueries({ queryKey: ['sge-stats'] })
+      queryClient.invalidateQueries({ queryKey: ['sge-inscricoes'] })
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Erro na importação')
+    },
+  })
+
+  // Mutation para importar TODOS os pendentes de uma vez
+  const importarTodosSGEMutation = useMutation({
+    mutationFn: async () => {
+      // Buscar todos os IDs pendentes em múltiplas páginas (API limita a 100 por página)
+      const todosIds: number[] = []
+      let page = 1
+      let totalPages = 1
+
+      // Buscar todas as páginas
+      while (page <= totalPages) {
+        const res = await fetch(`/api/sge/inscricoes?page=${page}&limit=100&apenasNaoImportados=true`)
+        if (!res.ok) throw new Error('Erro ao buscar inscrições')
+        const data = await res.json()
+
+        const ids = data.data?.map((i: any) => i.id) || []
+        todosIds.push(...ids)
+
+        totalPages = data.totalPages || 1
+        page++
+      }
+
+      if (todosIds.length === 0) {
+        throw new Error('Nenhuma inscrição pendente')
+      }
+
+      // Importar em lotes de 500 para não sobrecarregar
+      const BATCH_SIZE = 500
+      let totalImportados = 0
+      let totalJaExistentes = 0
+      let totalErros = 0
+
+      for (let i = 0; i < todosIds.length; i += BATCH_SIZE) {
+        const batch = todosIds.slice(i, i + BATCH_SIZE)
+        const importRes = await fetch('/api/sge/importar', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ inscricaoIds: batch }),
+        })
+
+        if (importRes.ok) {
+          const result = await importRes.json()
+          totalImportados += result.importados || 0
+          totalJaExistentes += result.jaExistentes || 0
+          totalErros += result.erros || 0
+        }
+      }
+
+      return { importados: totalImportados, jaExistentes: totalJaExistentes, erros: totalErros, total: todosIds.length }
+    },
+    onSuccess: (data) => {
+      toast.success(`Importacao em massa concluida: ${data.importados} novos, ${data.jaExistentes} ja existiam`)
+      queryClient.invalidateQueries({ queryKey: ['contatos'] })
+      queryClient.invalidateQueries({ queryKey: ['sge-stats'] })
+      queryClient.invalidateQueries({ queryKey: ['sge-inscricoes'] })
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Erro na importação em massa')
+    },
+  })
+
+  // Buscar contagem de contatos sem tag
+  const { data: semTagData } = useQuery({
+    queryKey: ['contatos-sem-tag'],
+    queryFn: async () => {
+      const res = await fetch('/api/tags/adicionar-lote')
+      if (!res.ok) return { totalSemTag: 0 }
+      return res.json()
+    },
+  })
+
+  const totalSemTag: number = semTagData?.totalSemTag || 0
+
+  // Mutation para adicionar em lote por tag
+  const batchAddTagMutation = useMutation({
+    mutationFn: async ({ tagId, quantidade }: { tagId: number; quantidade: number }) => {
+      const res = await fetch('/api/tags/adicionar-lote', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tagId, quantidade }),
+      })
+      if (!res.ok) {
+        const error = await res.json()
+        throw new Error(error.error || 'Erro ao adicionar contatos')
+      }
+      return res.json()
+    },
+    onSuccess: (data) => {
+      toast.success(data.message || `${data.adicionados} contatos adicionados!`)
+      queryClient.invalidateQueries({ queryKey: ['tags'] })
+      queryClient.invalidateQueries({ queryKey: ['contatos'] })
+      queryClient.invalidateQueries({ queryKey: ['contatos-sem-tag'] })
+      setIsBatchTagDialogOpen(false)
+      setBatchTagId('')
+      setBatchQuantidade('100')
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Erro ao adicionar contatos em lote')
+    },
   })
 
   // Buscar tags disponíveis
@@ -70,7 +244,7 @@ export default function ContatosPage() {
   const { data: contatosData, isLoading } = useQuery({
     queryKey: ['contatos'],
     queryFn: async () => {
-      const res = await fetch('/api/contatos')
+      const res = await fetch('/api/contatos?limit=5000')
       if (!res.ok) {
         const error = await res.json()
         console.error('Erro ao carregar contatos:', error)
@@ -554,6 +728,20 @@ export default function ContatosPage() {
               ))}
             </SelectContent>
           </Select>
+          {filtroTag === 'sem-tag' && totalSemTag > 0 && (
+            <Button
+              variant="secondary"
+              size="lg"
+              className="w-full sm:w-auto"
+              onClick={() => {
+                setBatchQuantidade(String(totalSemTag))
+                setIsBatchTagDialogOpen(true)
+              }}
+            >
+              <UserPlus className="mr-2 h-4 w-4" />
+              Adicionar a Tag ({totalSemTag})
+            </Button>
+          )}
           <Button
             variant="secondary"
             size="lg"
@@ -571,6 +759,20 @@ export default function ContatosPage() {
           >
             <Download className="mr-2 h-4 w-4" />
             Template Excel
+          </Button>
+          <Button
+            variant="secondary"
+            size="lg"
+            className="w-full sm:w-auto"
+            onClick={() => setIsSGEDialogOpen(true)}
+          >
+            <GraduationCap className="mr-2 h-4 w-4" />
+            Importar SGE
+            {sgeStats?.naoImportados > 0 && (
+              <Badge variant="destructive" className="ml-2 text-xs">
+                {sgeStats.naoImportados}
+              </Badge>
+            )}
           </Button>
           <Button
             variant="secondary"
@@ -603,7 +805,7 @@ export default function ContatosPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <Card>
           <CardHeader className="pb-2">
             <CardDescription className="text-xs">Total</CardDescription>
@@ -632,6 +834,12 @@ export default function ContatosPage() {
             <CardTitle className="text-2xl">
               {Array.isArray(contatos) ? contatos.filter((c: any) => c.tags?.length > 0).length : 0}
             </CardTitle>
+          </CardHeader>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription className="text-xs">Sem Tag</CardDescription>
+            <CardTitle className="text-2xl text-orange-600">{totalSemTag}</CardTitle>
           </CardHeader>
         </Card>
       </div>
@@ -696,7 +904,7 @@ export default function ContatosPage() {
                               {contatoTags.slice(0, 3).map((tag, idx) => (
                                 <Badge
                                   key={idx}
-                                  variant="outline"
+                                  variant="secondary"
                                   className="text-xs"
                                   style={{
                                     borderColor: tag.cor || '#6B7280',
@@ -863,6 +1071,337 @@ export default function ContatosPage() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog para Importar SGE */}
+      <Dialog open={isSGEDialogOpen} onOpenChange={setIsSGEDialogOpen}>
+        <DialogContent className="sm:max-w-[700px] max-h-[80vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <GraduationCap className="h-5 w-5" />
+              Importar Inscricoes SGE
+            </DialogTitle>
+            <DialogDescription>
+              Sincronize e importe inscricoes do Sistema de Gestao Educacional como contatos
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-y-auto space-y-4">
+            {/* Stats */}
+            <div className="grid grid-cols-3 gap-4">
+              <Card>
+                <CardContent className="pt-4">
+                  <p className="text-xs text-muted-foreground">Total SGE</p>
+                  <p className="text-2xl font-bold">{sgeStats?.total || 0}</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="pt-4">
+                  <p className="text-xs text-muted-foreground">Importados</p>
+                  <p className="text-2xl font-bold text-green-600">{sgeStats?.importados || 0}</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="pt-4">
+                  <p className="text-xs text-muted-foreground">Pendentes</p>
+                  <p className="text-2xl font-bold text-orange-600">{sgeStats?.naoImportados || 0}</p>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Sincronizar */}
+            <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
+              <div>
+                <p className="text-sm font-medium">Sincronizar com API SGE</p>
+                <p className="text-xs text-muted-foreground">
+                  Ultima: {sgeStats?.ultimaSincronizacao
+                    ? new Date(sgeStats.ultimaSincronizacao).toLocaleString('pt-BR')
+                    : 'Nunca'}
+                </p>
+              </div>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => sincronizarSGEMutation.mutate()}
+                disabled={sincronizarSGEMutation.isPending}
+              >
+                {sincronizarSGEMutation.isPending ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Sincronizando...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    Sincronizar
+                  </>
+                )}
+              </Button>
+            </div>
+
+            {/* Importar Todos de uma vez */}
+            {sgeStats?.naoImportados > 0 && (
+              <div className="flex items-center justify-between p-3 bg-green-50 border border-green-200 rounded-lg">
+                <div>
+                  <p className="text-sm font-medium text-green-800">Importar Todos os Pendentes</p>
+                  <p className="text-xs text-green-600">
+                    Importa todas as {sgeStats.naoImportados} inscricoes de uma vez
+                  </p>
+                </div>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  className="bg-green-600 hover:bg-green-700"
+                  onClick={() => {
+                    if (confirm(`Deseja importar todas as ${sgeStats.naoImportados} inscricoes pendentes como contatos?`)) {
+                      importarTodosSGEMutation.mutate()
+                    }
+                  }}
+                  disabled={importarTodosSGEMutation.isPending}
+                >
+                  {importarTodosSGEMutation.isPending ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Importando...
+                    </>
+                  ) : (
+                    <>
+                      <Download className="mr-2 h-4 w-4" />
+                      Importar Todos ({sgeStats.naoImportados})
+                    </>
+                  )}
+                </Button>
+              </div>
+            )}
+
+            {/* Lista de inscrições pendentes */}
+            {sgeLoading ? (
+              <div className="text-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2" />
+                <p className="text-sm text-muted-foreground">Carregando inscricoes...</p>
+              </div>
+            ) : sgeData?.data?.length === 0 ? (
+              <div className="text-center py-8">
+                <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-2" />
+                <p className="font-medium">Todas as inscricoes ja foram importadas!</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Clique em Sincronizar para buscar novas inscricoes
+                </p>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center justify-between">
+                  <p className="text-sm text-muted-foreground">
+                    {sgeData?.total || 0} inscricoes pendentes
+                  </p>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => {
+                      const allIds = sgeData?.data?.map((i: any) => i.id) || []
+                      setSelectedSGEIds(prev =>
+                        prev.length === allIds.length ? [] : allIds
+                      )
+                    }}
+                  >
+                    {selectedSGEIds.length === sgeData?.data?.length
+                      ? 'Desmarcar todos'
+                      : 'Selecionar todos'}
+                  </Button>
+                </div>
+
+                <div className="border rounded-lg max-h-[300px] overflow-y-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-10"></TableHead>
+                        <TableHead>Nome</TableHead>
+                        <TableHead>Telefone</TableHead>
+                        <TableHead className="hidden sm:table-cell">Curso</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {sgeData?.data?.map((inscricao: any) => (
+                        <TableRow key={inscricao.id}>
+                          <TableCell>
+                            <input
+                              type="checkbox"
+                              checked={selectedSGEIds.includes(inscricao.id)}
+                              onChange={() => {
+                                setSelectedSGEIds(prev =>
+                                  prev.includes(inscricao.id)
+                                    ? prev.filter(id => id !== inscricao.id)
+                                    : [...prev, inscricao.id]
+                                )
+                              }}
+                              className="w-4 h-4"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <p className="font-medium text-sm">{inscricao.nomeCompleto}</p>
+                            <p className="text-xs text-muted-foreground">{inscricao.municipio}</p>
+                          </TableCell>
+                          <TableCell className="text-sm">{inscricao.telefone}</TableCell>
+                          <TableCell className="hidden sm:table-cell text-xs text-muted-foreground truncate max-w-[150px]">
+                            {inscricao.cursoNome || '-'}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                {/* Paginação */}
+                {sgeData?.totalPages > 1 && (
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-muted-foreground">
+                      Pagina {sgePage} de {sgeData.totalPages}
+                    </p>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => setSGEPage(p => Math.max(1, p - 1))}
+                        disabled={sgePage === 1}
+                      >
+                        Anterior
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => setSGEPage(p => p + 1)}
+                        disabled={sgePage >= sgeData.totalPages}
+                      >
+                        Proximo
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          <DialogFooter className="mt-4">
+            <Button variant="secondary" onClick={() => setIsSGEDialogOpen(false)}>
+              Fechar
+            </Button>
+            {selectedSGEIds.length > 0 && (
+              <Button
+                onClick={() => importarSGEMutation.mutate(selectedSGEIds)}
+                disabled={importarSGEMutation.isPending}
+              >
+                {importarSGEMutation.isPending ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Importando...
+                  </>
+                ) : (
+                  <>
+                    <Download className="mr-2 h-4 w-4" />
+                    Importar {selectedSGEIds.length} Contatos
+                  </>
+                )}
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog para Adicionar Contatos em Lote a uma Tag */}
+      <Dialog open={isBatchTagDialogOpen} onOpenChange={setIsBatchTagDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <UserPlus className="h-5 w-5" />
+              Adicionar Contatos a uma Tag
+            </DialogTitle>
+            <DialogDescription>
+              Selecione uma categoria e a quantidade de contatos sem tag para adicionar
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4 py-4">
+            <div className="p-3 bg-muted rounded-lg text-center">
+              <p className="text-sm text-muted-foreground">Contatos disponíveis sem categoria</p>
+              <p className="text-2xl font-bold">{totalSemTag}</p>
+            </div>
+
+            <div className="grid gap-2">
+              <Label>Categoria destino</Label>
+              <Select value={batchTagId} onValueChange={setBatchTagId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione uma categoria" />
+                </SelectTrigger>
+                <SelectContent>
+                  {tagsDisponiveis.map((tag) => (
+                    <SelectItem key={tag.id} value={String(tag.id)}>
+                      <div className="flex items-center gap-2">
+                        <div
+                          className="w-3 h-3 rounded-full"
+                          style={{ backgroundColor: tag.cor || '#6B7280' }}
+                        />
+                        {tag.nome}
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="batch-qtd">Quantidade</Label>
+              <Input
+                id="batch-qtd"
+                type="number"
+                min={1}
+                max={Math.min(totalSemTag, 10000)}
+                value={batchQuantidade}
+                onChange={(e) => setBatchQuantidade(e.target.value)}
+                placeholder="Ex: 200"
+              />
+              <p className="text-xs text-muted-foreground">
+                Os contatos mais antigos (sem categoria) serão adicionados primeiro
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="secondary"
+              onClick={() => setIsBatchTagDialogOpen(false)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={() => {
+                const tagId = parseInt(batchTagId)
+                const quantidade = parseInt(batchQuantidade)
+                if (!tagId) {
+                  toast.error('Selecione uma categoria')
+                  return
+                }
+                if (!quantidade || quantidade < 1) {
+                  toast.error('Informe uma quantidade válida')
+                  return
+                }
+                batchAddTagMutation.mutate({ tagId, quantidade })
+              }}
+              disabled={batchAddTagMutation.isPending || !batchTagId || !batchQuantidade}
+            >
+              {batchAddTagMutation.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Adicionando...
+                </>
+              ) : (
+                <>
+                  <UserPlus className="mr-2 h-4 w-4" />
+                  Adicionar {batchQuantidade || 0} contatos
+                </>
+              )}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

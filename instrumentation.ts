@@ -8,10 +8,21 @@ export async function register() {
     // Executar apenas no servidor Node.js (não no Edge Runtime)
     const { mensagemService } = await import('./lib/services/mensagem.service')
     const { baileysDirectService } = await import('./lib/services/baileys-direct.service')
+    const { dynamicConfigService } = await import('./lib/services/dynamic-config.service')
     const { prisma } = await import('./lib/prisma')
     const { logger } = await import('./lib/observability/log')
 
     logger.info('server.startup')
+
+    // Migrar configurações do .env para o banco (apenas na primeira vez)
+    try {
+      const result = await dynamicConfigService.migrateFromEnv()
+      if (result.migrated.length > 0) {
+        logger.info(`config.migration.success: ${result.migrated.length} configs migrated`)
+      }
+    } catch (error) {
+      logger.warn('config.migration.error: Could not migrate configs from env')
+    }
 
     // Recuperar mensagens travadas
     await mensagemService.recuperarMensagensTravadas()

@@ -299,14 +299,91 @@ class ContatoService {
   }
 
   /**
+   * Sincronizar contatos vindos do WhatsApp (Baileys contacts.upsert)
+   * Faz upsert em lote: cria novos ou atualiza nome de existentes
+   */
+  async syncFromWhatsApp(contacts: Array<{ phone: string; name?: string }>): Promise<{
+    novos: number
+    atualizados: number
+    ignorados: number
+  }> {
+    let novos = 0
+    let atualizados = 0
+    let ignorados = 0
+
+    // Processar em lotes de 100 dentro de uma transação
+    const BATCH_SIZE = 100
+    for (let i = 0; i < contacts.length; i += BATCH_SIZE) {
+      const batch = contacts.slice(i, i + BATCH_SIZE)
+
+      await prisma.$transaction(async (tx) => {
+        for (const contact of batch) {
+          try {
+            if (!contact.phone) {
+              ignorados++
+              continue
+            }
+
+            const numeroLimpo = addBrazilCountryCode(cleanPhoneNumber(contact.phone))
+            if (!numeroLimpo || numeroLimpo.length < 10) {
+              ignorados++
+              continue
+            }
+
+            const numeroWhatsapp = numeroLimpo + '@s.whatsapp.net'
+
+            const existente = await tx.contato.findFirst({
+              where: { numeroWhatsapp },
+            })
+
+            if (existente) {
+              // Atualizar nome se veio do WhatsApp e o contato não tem nome
+              if (contact.name && !existente.nomeContato) {
+                await tx.contato.update({
+                  where: { id: existente.id },
+                  data: { nomeContato: contact.name },
+                })
+              }
+              atualizados++
+            } else {
+              await tx.contato.create({
+                data: {
+                  numeroWhatsapp,
+                  nomeContato: contact.name || null,
+                  ativo: true,
+                },
+              })
+              novos++
+            }
+          } catch {
+            ignorados++
+          }
+        }
+      }, { timeout: 30000 })
+    }
+
+    // Log do evento
+    await prisma.logEvento.create({
+      data: {
+        tipo: 'sync_whatsapp',
+        descricao: `Sync WhatsApp: ${novos} novos, ${atualizados} atualizados, ${ignorados} ignorados`,
+        dadosJson: { novos, atualizados, ignorados },
+      },
+    })
+
+    return { novos, atualizados, ignorados }
+  }
+
+  /**
    * Obter estatísticas de contatos
    */
   async obterEstatisticas(): Promise<any> {
-    const [total, ativos, inativos, semGrupo] = await Promise.all([
+    const [total, ativos, inativos, semGrupo, semTag] = await Promise.all([
       prisma.contato.count(),
       prisma.contato.count({ where: { ativo: true } }),
       prisma.contato.count({ where: { ativo: false } }),
       prisma.contato.count({ where: { grupoId: null, ativo: true } }),
+      prisma.contato.count({ where: { ativo: true, tags: { none: {} } } }),
     ])
 
     return {
@@ -314,6 +391,7 @@ class ContatoService {
       ativos,
       inativos,
       semGrupo,
+      semTag,
     }
   }
 }

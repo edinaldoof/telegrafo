@@ -13,6 +13,7 @@ import {
   X,
   ChevronDown,
   ChevronUp,
+  UserPlus,
 } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -36,6 +37,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { toast } from 'sonner'
 
 interface Tag {
@@ -83,6 +91,11 @@ export default function TagsPage() {
     descricao: '',
   })
 
+  // Estado do dialog de adicionar em lote
+  const [isBatchDialogOpen, setIsBatchDialogOpen] = useState(false)
+  const [batchTagId, setBatchTagId] = useState<string>('')
+  const [batchQuantidade, setBatchQuantidade] = useState<string>('100')
+
   // Buscar todas as tags
   const { data: tagsData, isLoading } = useQuery({
     queryKey: ['tags'],
@@ -105,6 +118,47 @@ export default function TagsPage() {
       return res.json()
     },
     enabled: !!expandedTagId,
+  })
+
+  // Buscar contagem de contatos sem tag
+  const { data: semTagData } = useQuery({
+    queryKey: ['contatos-sem-tag'],
+    queryFn: async () => {
+      const res = await fetch('/api/tags/adicionar-lote')
+      if (!res.ok) return { totalSemTag: 0 }
+      return res.json()
+    },
+  })
+
+  const totalSemTag: number = semTagData?.totalSemTag || 0
+
+  // Mutation para adicionar em lote
+  const batchAddMutation = useMutation({
+    mutationFn: async ({ tagId, quantidade }: { tagId: number; quantidade: number }) => {
+      const res = await fetch('/api/tags/adicionar-lote', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tagId, quantidade }),
+      })
+      if (!res.ok) {
+        const error = await res.json()
+        throw new Error(error.error || 'Erro ao adicionar contatos')
+      }
+      return res.json()
+    },
+    onSuccess: (data) => {
+      toast.success(data.message || `${data.adicionados} contatos adicionados!`)
+      queryClient.invalidateQueries({ queryKey: ['tags'] })
+      queryClient.invalidateQueries({ queryKey: ['tag-details'] })
+      queryClient.invalidateQueries({ queryKey: ['contatos-sem-tag'] })
+      queryClient.invalidateQueries({ queryKey: ['contatos'] })
+      setIsBatchDialogOpen(false)
+      setBatchTagId('')
+      setBatchQuantidade('100')
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Erro ao adicionar contatos em lote')
+    },
   })
 
   // Mutation para criar tag
@@ -272,10 +326,27 @@ export default function TagsPage() {
             Organize seus contatos com categorias/tags para envio segmentado
           </p>
         </div>
-        <Button size="lg" className="w-full sm:w-auto" onClick={() => handleOpenDialog()}>
-          <Plus className="mr-2 h-4 w-4" />
-          Nova Categoria
-        </Button>
+        <div className="flex flex-col sm:flex-row gap-2">
+          <Button
+            variant="secondary"
+            size="lg"
+            className="w-full sm:w-auto"
+            onClick={() => setIsBatchDialogOpen(true)}
+            disabled={totalSemTag === 0}
+          >
+            <UserPlus className="mr-2 h-4 w-4" />
+            Adicionar Contatos
+            {totalSemTag > 0 && (
+              <Badge variant="destructive" className="ml-2 text-xs">
+                {totalSemTag}
+              </Badge>
+            )}
+          </Button>
+          <Button size="lg" className="w-full sm:w-auto" onClick={() => handleOpenDialog()}>
+            <Plus className="mr-2 h-4 w-4" />
+            Nova Categoria
+          </Button>
+        </div>
       </div>
 
       {/* Stats */}
@@ -589,6 +660,103 @@ export default function TagsPage() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog para Adicionar Contatos em Lote */}
+      <Dialog open={isBatchDialogOpen} onOpenChange={setIsBatchDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <UserPlus className="h-5 w-5" />
+              Adicionar Contatos em Lote
+            </DialogTitle>
+            <DialogDescription>
+              Adicione contatos sem categoria a uma categoria existente
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4 py-4">
+            <div className="p-3 bg-muted rounded-lg text-center">
+              <p className="text-sm text-muted-foreground">Contatos disponíveis sem categoria</p>
+              <p className="text-2xl font-bold">{totalSemTag}</p>
+            </div>
+
+            <div className="grid gap-2">
+              <Label>Categoria destino</Label>
+              <Select value={batchTagId} onValueChange={setBatchTagId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione uma categoria" />
+                </SelectTrigger>
+                <SelectContent>
+                  {tags.map((tag) => (
+                    <SelectItem key={tag.id} value={String(tag.id)}>
+                      <div className="flex items-center gap-2">
+                        <div
+                          className="w-3 h-3 rounded-full"
+                          style={{ backgroundColor: tag.cor || '#6B7280' }}
+                        />
+                        {tag.nome} ({tag.totalContatos} contatos)
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="batch-quantidade">Quantidade</Label>
+              <Input
+                id="batch-quantidade"
+                type="number"
+                min={1}
+                max={Math.min(totalSemTag, 10000)}
+                value={batchQuantidade}
+                onChange={(e) => setBatchQuantidade(e.target.value)}
+                placeholder="Ex: 200"
+              />
+              <p className="text-xs text-muted-foreground">
+                Os contatos mais antigos (sem categoria) serão adicionados primeiro
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="secondary"
+              onClick={() => setIsBatchDialogOpen(false)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={() => {
+                const tagId = parseInt(batchTagId)
+                const quantidade = parseInt(batchQuantidade)
+                if (!tagId) {
+                  toast.error('Selecione uma categoria')
+                  return
+                }
+                if (!quantidade || quantidade < 1) {
+                  toast.error('Informe uma quantidade válida')
+                  return
+                }
+                batchAddMutation.mutate({ tagId, quantidade })
+              }}
+              disabled={batchAddMutation.isPending || !batchTagId || !batchQuantidade}
+            >
+              {batchAddMutation.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Adicionando...
+                </>
+              ) : (
+                <>
+                  <UserPlus className="mr-2 h-4 w-4" />
+                  Adicionar {batchQuantidade || 0} contatos
+                </>
+              )}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

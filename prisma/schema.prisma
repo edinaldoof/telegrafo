@@ -36,6 +36,7 @@ model Grupo {
   capacidadeMaxima    Int         @default(256) @map("capacidade_maxima")
   status              String      @default("ativo") // "ativo", "cheio", "arquivado"
   ehGrupoAtual        Boolean     @default(false) @map("eh_grupo_atual") // Grupo que está recebendo novos membros
+  ultimaSincronizacao DateTime?   @map("ultima_sincronizacao") // Última sincronização de membros
   criadoEm            DateTime    @default(now()) @map("criado_em")
   atualizadoEm        DateTime    @updatedAt @map("atualizado_em")
 
@@ -43,6 +44,8 @@ model Grupo {
   contatos            Contato[]
   logs                LogEvento[]
   filaEnvio           FilaEnvio[]
+  membros             MembroGrupo[]
+  sincronizacoes      SincronizacaoGrupo[]
 
   @@index([status])
   @@index([ehGrupoAtual])
@@ -435,4 +438,124 @@ model ConnectionHistory {
   @@index([instanceName])
   @@index([timestamp])
   @@map("connection_history")
+}
+
+// Configurações dinâmicas (key-value store)
+// Permite alterar configurações sem reiniciar a aplicação
+model DynamicConfig {
+  id                  Int       @id @default(autoincrement())
+  key                 String    @unique // Ex: "TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN"
+  value               String    @db.Text // Valor da configuração
+  category            String    @default("general") // "twilio", "evolution", "cloudinary", "app", "security"
+  description         String?   @db.Text // Descrição para UI
+  isSecret            Boolean   @default(false) @map("is_secret") // Se deve mascarar na UI
+  criadoEm            DateTime  @default(now()) @map("criado_em")
+  atualizadoEm        DateTime  @updatedAt @map("atualizado_em")
+
+  @@index([category])
+  @@map("dynamic_configs")
+}
+
+// Membros dos grupos WhatsApp (sincronizado via Evolution API)
+model MembroGrupo {
+  id                  Int       @id @default(autoincrement())
+  grupoId             Int       @map("grupo_id")
+  whatsappGroupId     String    @map("whatsapp_group_id") // ID do grupo no WhatsApp
+  numero              String    // Número do membro (formato: 5511999999999)
+  nome                String?   // Nome no WhatsApp (se disponível)
+  ehAdmin             Boolean   @default(false) @map("eh_admin")
+  ehSuperAdmin        Boolean   @default(false) @map("eh_super_admin")
+  sincronizadoEm      DateTime  @default(now()) @map("sincronizado_em")
+  instanceName        String?   @map("instance_name") // Instância que fez a sincronização
+
+  // Relações
+  grupo               Grupo     @relation(fields: [grupoId], references: [id], onDelete: Cascade)
+
+  @@unique([grupoId, numero])
+  @@index([grupoId])
+  @@index([whatsappGroupId])
+  @@index([numero])
+  @@map("membros_grupo")
+}
+
+// Sincronizações de grupos
+model SincronizacaoGrupo {
+  id                  Int       @id @default(autoincrement())
+  grupoId             Int       @map("grupo_id")
+  instanceName        String    @map("instance_name")
+  totalMembros        Int       @map("total_membros")
+  status              String    @default("sucesso") // "sucesso", "erro"
+  erro                String?   @db.Text
+  sincronizadoEm      DateTime  @default(now()) @map("sincronizado_em")
+
+  // Relações
+  grupo               Grupo     @relation(fields: [grupoId], references: [id], onDelete: Cascade)
+
+  @@index([grupoId])
+  @@index([sincronizadoEm])
+  @@map("sincronizacoes_grupo")
+}
+
+// Mensagens recebidas via Twilio WhatsApp
+model MensagemRecebida {
+  id                  Int       @id @default(autoincrement())
+  sid                 String    @unique // MessageSid do Twilio
+  de                  String    // From - número do remetente
+  para                String    // To - número que recebeu
+  corpo               String    @db.Text // Body - conteúdo da mensagem
+  nomeRemetente       String?   @map("nome_remetente") // ProfileName
+  whatsappId          String?   @map("whatsapp_id") // WaId do remetente
+  numMidia            Int       @default(0) @map("num_midia") // NumMedia
+  dadosCompletos      Json?     @map("dados_completos") // Todos os dados do webhook
+  lida                Boolean   @default(false)
+  respondida          Boolean   @default(false)
+  recebidaEm          DateTime  @default(now()) @map("recebida_em")
+
+  @@index([de])
+  @@index([recebidaEm])
+  @@index([lida])
+  @@map("mensagens_recebidas")
+}
+
+// Inscrições SGE (sincronizadas da API COTEC)
+model InscricaoSGE {
+  id                  Int       @id // ID original da API SGE
+  nomeCompleto        String    @map("nome_completo")
+  cpf                 String    @unique
+  email               String?
+  telefone            String    // Telefone original
+  telefoneAlternativo String?   @map("telefone_alternativo")
+  telefoneLimpo       String    @map("telefone_limpo") // Formato normalizado: 5562999999999
+  municipio           String
+  estado              String
+  cep                 String?
+  logradouro          String?
+  numero              String?
+  bairro              String?
+  dataNascimento      DateTime? @map("data_nascimento")
+  nomeMae             String?   @map("nome_mae")
+  situacao            String    // "Nova Inscrição", "Matriculado", etc
+
+  // Dados do curso/turma
+  turmaId             Int?      @map("turma_id")
+  turmaNome           String?   @map("turma_nome")
+  cursoNome           String?   @map("curso_nome")
+  turno               String?
+  editalNome          String?   @map("edital_nome")
+
+  // Metadados
+  dadosExtras         Json?     @map("dados_extras") // Dados adicionais da API
+  sincronizadoEm      DateTime  @default(now()) @map("sincronizado_em")
+  atualizadoEm        DateTime  @updatedAt @map("atualizado_em")
+
+  // Indica se foi importado como contato
+  importadoContato    Boolean   @default(false) @map("importado_contato")
+  contatoId           Int?      @map("contato_id")
+
+  @@index([telefoneLimpo])
+  @@index([municipio])
+  @@index([situacao])
+  @@index([cursoNome])
+  @@index([importadoContato])
+  @@map("inscricoes_sge")
 }

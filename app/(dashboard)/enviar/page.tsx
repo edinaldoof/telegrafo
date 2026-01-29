@@ -1,16 +1,16 @@
 'use client'
 
 import { useState, useRef } from 'react'
-import { Send, FileText, Users, Image, Video, Music, File, Calendar, Loader2, CheckCircle, Upload, X, UserCircle } from 'lucide-react'
+import { Send, Loader2, CheckCircle, Users, MessageSquare, FileText, Eye, UserCircle, Upload, X, Image, DollarSign, AlertTriangle, Calculator } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
+import { Textarea } from '@/components/ui/textarea'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Input } from '@/components/ui/input'
 import {
   Select,
   SelectContent,
@@ -18,9 +18,31 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 
-type TipoMensagem = 'texto' | 'imagem' | 'video' | 'audio' | 'documento'
-type TipoDestino = 'grupos' | 'contatos'
+interface TwilioTemplate {
+  sid: string
+  nome: string
+  idioma: string
+  tipos: string[]
+  corpo: string | null
+  variaveis: Record<string, any>
+  status: string
+  podeUsar: boolean
+}
+
+interface TagItem {
+  id: number
+  nome: string
+  cor?: string | null
+  totalContatos?: number
+}
 
 interface Anexo {
   url: string
@@ -30,26 +52,59 @@ interface Anexo {
   mediaType: string
 }
 
+type TipoDestino = 'contatos' | 'grupos'
+
 export default function EnviarPage() {
-  const [mensagem, setMensagem] = useState('')
-  const [instanceId, setInstanceId] = useState('')
-  const [tipoMensagem, setTipoMensagem] = useState<TipoMensagem>('texto')
   const [tipoDestino, setTipoDestino] = useState<TipoDestino>('contatos')
-  const [gruposSelecionados, setGruposSelecionados] = useState<number[]>([])
+  const [templateSelecionado, setTemplateSelecionado] = useState<TwilioTemplate | null>(null)
   const [contatosSelecionados, setContatosSelecionados] = useState<number[]>([])
   const [tagsSelecionadas, setTagsSelecionadas] = useState<number[]>([])
+  const [gruposSelecionados, setGruposSelecionados] = useState<number[]>([])
+  const [variaveis, setVariaveis] = useState<Record<string, string>>({})
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false)
+  const [busca, setBusca] = useState('')
+  const [instanceId, setInstanceId] = useState('')
+  const [mensagem, setMensagem] = useState('')
   const [anexo, setAnexo] = useState<Anexo | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [isConfirmOpen, setIsConfirmOpen] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Buscar instâncias ativas
-  const { data: instances } = useQuery({
-    queryKey: ['instances'],
+  // Custo por mensagem WhatsApp Business (Brasil) em USD
+  const CUSTO_POR_MENSAGEM_USD = 0.0625
+
+  // Buscar templates aprovados do Twilio
+  const { data: templatesData, isLoading: loadingTemplates } = useQuery({
+    queryKey: ['twilio-templates'],
     queryFn: async () => {
-      const res = await fetch('/api/instances')
+      const res = await fetch('/api/twilio/templates')
+      if (!res.ok) return { templates: [] }
+      return res.json()
+    },
+  })
+
+  const templatesAprovados: TwilioTemplate[] = (templatesData?.templates || [])
+    .filter((t: TwilioTemplate) => t.podeUsar)
+
+  // Buscar contatos
+  const { data: contatos } = useQuery({
+    queryKey: ['contatos'],
+    queryFn: async () => {
+      const res = await fetch('/api/contatos')
       if (!res.ok) return []
       const data = await res.json()
-      return data.data || data.instances || data || []
+      return data.data || data.contatos || []
+    },
+  })
+
+  // Buscar tags
+  const { data: tagsResponse } = useQuery({
+    queryKey: ['tags'],
+    queryFn: async (): Promise<TagItem[]> => {
+      const res = await fetch('/api/tags')
+      if (!res.ok) return []
+      const data = await res.json()
+      return Array.isArray(data?.tags) ? data.tags : []
     },
   })
 
@@ -64,60 +119,74 @@ export default function EnviarPage() {
     },
   })
 
-  // Buscar contatos
-  const { data: contatos } = useQuery({
-    queryKey: ['contatos'],
+  // Buscar instancias
+  const { data: instances } = useQuery({
+    queryKey: ['instances'],
     queryFn: async () => {
-      const res = await fetch('/api/contatos')
+      const res = await fetch('/api/instances')
       if (!res.ok) return []
       const data = await res.json()
-      return data.data || data.contatos || []
+      return data.data || data.instances || data || []
     },
   })
 
-  type TagItem = {
-    id: number
-    nome: string
-    cor?: string | null
-    totalContatos?: number
-  }
-
-  const { data: tagsResponse } = useQuery({
-    queryKey: ['tags'],
-    queryFn: async (): Promise<TagItem[]> => {
-      const res = await fetch('/api/tags')
-      if (!res.ok) return []
-      const data = await res.json()
-      return Array.isArray(data?.tags) ? data.tags : []
+  // Buscar saldo Twilio
+  const { data: saldoData } = useQuery({
+    queryKey: ['twilio-saldo'],
+    queryFn: async () => {
+      const res = await fetch('/api/twilio/saldo')
+      if (!res.ok) return null
+      return res.json()
     },
+    refetchInterval: 60000, // Atualizar a cada 1 minuto
   })
+
+  const saldoAtual = saldoData?.saldo?.balance ? parseFloat(saldoData.saldo.balance) : 0
+  const moeda = saldoData?.saldo?.currency || 'USD'
 
   const tagsDisponiveis: TagItem[] = tagsResponse ?? []
+
+  // Filtrar contatos pela busca
+  const contatosFiltrados = (contatos || []).filter((c: any) =>
+    busca === '' ||
+    c.nome?.toLowerCase().includes(busca.toLowerCase()) ||
+    c.numeroWhatsapp?.includes(busca)
+  )
 
   // Calcular total de contatos das tags selecionadas
   const totalContatosTags = tagsDisponiveis
     .filter(t => tagsSelecionadas.includes(t.id))
     .reduce((acc, t) => acc + (t.totalContatos || 0), 0)
 
-  // Upload de arquivo
+  // Extrair variaveis do template
+  const extractVariables = (corpo: string | null): string[] => {
+    if (!corpo) return []
+    const regex = /\{\{(\d+)\}\}/g
+    const vars: string[] = []
+    let match
+    while ((match = regex.exec(corpo)) !== null) {
+      if (!vars.includes(match[1])) {
+        vars.push(match[1])
+      }
+    }
+    return vars.sort((a, b) => parseInt(a) - parseInt(b))
+  }
+
+  const variaveisTemplate = templateSelecionado ? extractVariables(templateSelecionado.corpo) : []
+
+  // Upload de arquivo (para grupos)
   const handleFileUpload = async (file: File) => {
     setUploading(true)
-    toast.info(`Enviando ${file.name}...`)
+    toast.info('Enviando ' + file.name + '...')
 
     try {
       const formData = new FormData()
       formData.append('file', file)
 
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 30000) // 30s timeout
-
       const res = await fetch('/api/upload', {
         method: 'POST',
         body: formData,
-        signal: controller.signal,
       })
-
-      clearTimeout(timeoutId)
 
       if (!res.ok) {
         const error = await res.json()
@@ -125,11 +194,6 @@ export default function EnviarPage() {
       }
 
       const data = await res.json()
-
-      if (!data.success) {
-        throw new Error(data.error || 'Upload falhou')
-      }
-
       setAnexo({
         url: data.fullUrl,
         fullUrl: data.fullUrl,
@@ -137,28 +201,42 @@ export default function EnviarPage() {
         mimeType: data.mimeType,
         mediaType: data.mediaType,
       })
-
-      // Atualizar tipo baseado no arquivo
-      if (data.mediaType === 'image') setTipoMensagem('imagem')
-      else if (data.mediaType === 'video') setTipoMensagem('video')
-      else if (data.mediaType === 'audio') setTipoMensagem('audio')
-      else setTipoMensagem('documento')
-
       toast.success('Arquivo anexado!')
     } catch (error: any) {
-      if (error.name === 'AbortError') {
-        toast.error('Upload demorou demais. Tente uma imagem menor.')
-      } else {
-        toast.error(error.message || 'Erro ao fazer upload')
-      }
-      console.error('Upload error:', error)
+      toast.error(error.message || 'Erro ao fazer upload')
     } finally {
       setUploading(false)
     }
   }
 
-  // Mutation para enviar mensagem
-  const enviarMutation = useMutation({
+  // Mutation para enviar via Twilio (templates)
+  const enviarTwilioMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await fetch('/api/twilio/enviar-massa', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      })
+      if (!res.ok) {
+        const error = await res.json()
+        throw new Error(error.error || error.erro || 'Erro ao enviar')
+      }
+      return res.json()
+    },
+    onSuccess: (data) => {
+      toast.success('Envio iniciado! ' + (data.totalEnviados || 0) + ' mensagem(ns) enviada(s)')
+      setContatosSelecionados([])
+      setTagsSelecionadas([])
+      setVariaveis({})
+      setTemplateSelecionado(null)
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Erro ao enviar mensagem')
+    },
+  })
+
+  // Mutation para enviar via Baileys (grupos)
+  const enviarBaileysMutation = useMutation({
     mutationFn: async (data: any) => {
       const res = await fetch('/api/mensagens/enviar-massa', {
         method: 'POST',
@@ -172,12 +250,10 @@ export default function EnviarPage() {
       return res.json()
     },
     onSuccess: (data) => {
-      const total = (data.totalGrupos || 0) + (data.totalDestinatarios || 0)
-      toast.success(`Envio iniciado para ${total} destinatário(s)!`)
+      const total = data.totalGrupos || 0
+      toast.success('Envio iniciado para ' + total + ' grupo(s)!')
       setMensagem('')
       setGruposSelecionados([])
-      setContatosSelecionados([])
-      setTagsSelecionadas([])
       setAnexo(null)
     },
     onError: (error: any) => {
@@ -186,54 +262,52 @@ export default function EnviarPage() {
   })
 
   const handleEnviar = () => {
-    // Validações
-    if (tipoDestino === 'grupos' && gruposSelecionados.length === 0) {
-      toast.error('Selecione pelo menos um grupo')
-      return
+    if (tipoDestino === 'contatos') {
+      // Enviar via Twilio com template
+      if (!templateSelecionado) {
+        toast.error('Selecione um template')
+        return
+      }
+
+      if (contatosSelecionados.length === 0 && tagsSelecionadas.length === 0) {
+        toast.error('Selecione pelo menos um contato ou tag')
+        return
+      }
+
+      for (const v of variaveisTemplate) {
+        if (!variaveis[v]?.trim()) {
+          toast.error('Preencha a variavel ' + v)
+          return
+        }
+      }
+
+      // Abrir dialog de confirmacao com custos
+      setIsConfirmOpen(true)
+    } else {
+      // Enviar via Baileys para grupos
+      if (gruposSelecionados.length === 0) {
+        toast.error('Selecione pelo menos um grupo')
+        return
+      }
+
+      if (!instanceId) {
+        toast.error('Selecione uma instancia Baileys')
+        return
+      }
+
+      if (!mensagem.trim() && !anexo) {
+        toast.error('Digite uma mensagem ou anexe um arquivo')
+        return
+      }
+
+      enviarBaileysMutation.mutate({
+        instanceId: Number(instanceId),
+        tipo: anexo ? anexo.mediaType : 'texto',
+        conteudo: mensagem,
+        grupos: gruposSelecionados,
+        anexo: anexo ? { url: anexo.fullUrl, fileName: anexo.fileName, mimeType: anexo.mimeType } : undefined,
+      })
     }
-
-    if (tipoDestino === 'contatos' && contatosSelecionados.length === 0 && tagsSelecionadas.length === 0) {
-      toast.error('Selecione pelo menos um contato ou tag')
-      return
-    }
-
-    if (tipoDestino === 'grupos' && !instanceId) {
-      toast.error('Para enviar para grupos, selecione uma instância Baileys')
-      return
-    }
-
-    if (tipoMensagem !== 'texto' && !anexo) {
-      toast.error('Anexe um arquivo para este tipo de mensagem')
-      return
-    }
-
-    if (tipoMensagem === 'texto' && !mensagem.trim()) {
-      toast.error('Digite uma mensagem')
-      return
-    }
-
-    // Preparar destinatários
-    const destinatariosNumeros = contatos
-      ?.filter((c: any) => contatosSelecionados.includes(c.id))
-      .map((c: any) => c.numeroWhatsapp) || []
-
-    enviarMutation.mutate({
-      instanceId: tipoDestino === 'grupos' ? Number(instanceId) : undefined,
-      tipo: tipoMensagem,
-      conteudo: mensagem,
-      grupos: tipoDestino === 'grupos' ? gruposSelecionados : [],
-      destinatarios: tipoDestino === 'contatos' ? destinatariosNumeros : [],
-      filtroTags: tipoDestino === 'contatos' ? tagsSelecionadas : [],
-      anexo: anexo ? { url: anexo.fullUrl, fileName: anexo.fileName, mimeType: anexo.mimeType } : undefined,
-    })
-  }
-
-  const toggleGrupo = (grupoId: number) => {
-    setGruposSelecionados(prev =>
-      prev.includes(grupoId)
-        ? prev.filter(id => id !== grupoId)
-        : [...prev, grupoId]
-    )
   }
 
   const toggleContato = (contatoId: number) => {
@@ -252,226 +326,335 @@ export default function EnviarPage() {
     )
   }
 
-  const getTipoIcon = (tipo: TipoMensagem) => {
-    switch (tipo) {
-      case 'texto': return <FileText className="h-4 w-4" />
-      case 'imagem': return <Image className="h-4 w-4" />
-      case 'video': return <Video className="h-4 w-4" />
-      case 'audio': return <Music className="h-4 w-4" />
-      case 'documento': return <File className="h-4 w-4" />
+  const toggleGrupo = (grupoId: number) => {
+    setGruposSelecionados(prev =>
+      prev.includes(grupoId)
+        ? prev.filter(id => id !== grupoId)
+        : [...prev, grupoId]
+    )
+  }
+
+  const selecionarTodos = () => {
+    if (contatosSelecionados.length === contatosFiltrados.length) {
+      setContatosSelecionados([])
+    } else {
+      setContatosSelecionados(contatosFiltrados.map((c: any) => c.id))
     }
   }
 
-  const getAcceptTypes = () => {
-    switch (tipoMensagem) {
-      case 'imagem': return 'image/*'
-      case 'video': return 'video/*'
-      case 'audio': return 'audio/*'
-      case 'documento': return '.pdf,.doc,.docx,.xls,.xlsx'
-      default: return '*/*'
-    }
+  const totalDestinatarios = contatosSelecionados.length + totalContatosTags
+  const isPending = enviarTwilioMutation.isPending || enviarBaileysMutation.isPending
+
+  // Calculos de custo
+  const custoEstimado = totalDestinatarios * CUSTO_POR_MENSAGEM_USD
+  const mensagensRestantes = saldoAtual > 0 ? Math.floor(saldoAtual / CUSTO_POR_MENSAGEM_USD) : 0
+  const saldoAposEnvio = saldoAtual - custoEstimado
+  const temSaldoSuficiente = saldoAposEnvio >= 0
+
+  // Funcao para confirmar e enviar
+  const confirmarEnvio = () => {
+    const destinatariosNumeros = contatos
+      ?.filter((c: any) => contatosSelecionados.includes(c.id))
+      .map((c: any) => c.numeroWhatsapp) || []
+
+    enviarTwilioMutation.mutate({
+      templateSid: templateSelecionado!.sid,
+      destinatarios: destinatariosNumeros,
+      filtroTags: tagsSelecionadas,
+      variaveis: variaveis,
+    })
+    setIsConfirmOpen(false)
   }
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div>
-        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Enviar Mensagens</h1>
-        <p className="text-sm sm:text-base text-muted-foreground mt-2">
-          Envie mensagens para grupos (Baileys) ou contatos individuais (Twilio)
+        <h1 className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight">Enviar Mensagens</h1>
+        <p className="text-xs sm:text-sm text-muted-foreground mt-1">
+          Envie mensagens para contatos ou grupos
         </p>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Coluna 1: Configuração */}
-        <div className="space-y-6">
-          {/* Tipo de Destino */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Destino</CardTitle>
-              <CardDescription>Escolha para quem enviar</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <Button
-                  variant={tipoDestino === 'contatos' ? 'primary' : 'secondary'}
-                  className="flex-1 justify-start"
-                  onClick={() => setTipoDestino('contatos')}
-                >
-                  <UserCircle className="h-4 w-4 mr-2" />
-                  Contatos (Twilio)
-                </Button>
-                <Button
-                  variant={tipoDestino === 'grupos' ? 'primary' : 'secondary'}
-                  className="flex-1 justify-start"
-                  onClick={() => setTipoDestino('grupos')}
-                >
-                  <Users className="h-4 w-4 mr-2" />
-                  Grupos (Baileys)
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+      {/* Tipo de Destino */}
+      <Card>
+        <CardContent className="p-3 sm:pt-6 sm:px-6">
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Button
+              variant={tipoDestino === 'contatos' ? 'primary' : 'secondary'}
+              className="flex-1 justify-start text-xs sm:text-sm"
+              onClick={() => setTipoDestino('contatos')}
+            >
+              <UserCircle className="h-4 w-4 mr-2 flex-shrink-0" />
+              <span className="truncate">Contatos (Twilio)</span>
+            </Button>
+            <Button
+              variant={tipoDestino === 'grupos' ? 'primary' : 'secondary'}
+              className="flex-1 justify-start text-xs sm:text-sm"
+              onClick={() => setTipoDestino('grupos')}
+            >
+              <Users className="h-4 w-4 mr-2 flex-shrink-0" />
+              <span className="truncate">Grupos (Baileys)</span>
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
-          {/* Instância (só para grupos) */}
-          {tipoDestino === 'grupos' && (
+      {tipoDestino === 'contatos' ? (
+        /* MODO CONTATOS - TWILIO COM TEMPLATES */
+        <>
+        {/* Card de Saldo e Previsao */}
+        <Card className="border-0 bg-gradient-to-r from-green-500/10 to-blue-500/10">
+          <CardContent className="p-4 sm:pt-6">
+            <div className="grid gap-3 sm:gap-4 grid-cols-3">
+              <div className="flex flex-col sm:flex-row items-center sm:items-center gap-2 sm:gap-3 text-center sm:text-left">
+                <div className="p-2 rounded-lg bg-green-500/20">
+                  <DollarSign className="h-4 w-4 sm:h-5 sm:w-5 text-green-500" />
+                </div>
+                <div>
+                  <p className="text-[10px] sm:text-xs text-muted-foreground">Saldo</p>
+                  <p className="text-sm sm:text-lg font-bold font-mono">${saldoAtual.toFixed(2)}</p>
+                </div>
+              </div>
+              <div className="flex flex-col sm:flex-row items-center sm:items-center gap-2 sm:gap-3 text-center sm:text-left">
+                <div className="p-2 rounded-lg bg-blue-500/20">
+                  <MessageSquare className="h-4 w-4 sm:h-5 sm:w-5 text-blue-500" />
+                </div>
+                <div>
+                  <p className="text-[10px] sm:text-xs text-muted-foreground">Msgs Possiveis</p>
+                  <p className="text-sm sm:text-lg font-bold">{mensagensRestantes.toLocaleString()}</p>
+                </div>
+              </div>
+              <div className="flex flex-col sm:flex-row items-center sm:items-center gap-2 sm:gap-3 text-center sm:text-left">
+                <div className="p-2 rounded-lg bg-purple-500/20">
+                  <Calculator className="h-4 w-4 sm:h-5 sm:w-5 text-purple-500" />
+                </div>
+                <div>
+                  <p className="text-[10px] sm:text-xs text-muted-foreground">Custo/Msg</p>
+                  <p className="text-sm sm:text-lg font-bold font-mono">${CUSTO_POR_MENSAGEM_USD}</p>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="grid gap-6 lg:grid-cols-2">
+          <div className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg">Instância Baileys</CardTitle>
-                <CardDescription>Obrigatório para enviar a grupos</CardDescription>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <FileText className="h-5 w-5" />
+                  Template
+                </CardTitle>
+                <CardDescription>Selecione um template aprovado</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {loadingTemplates ? (
+                  <div className="flex justify-center py-4">
+                    <Loader2 className="h-6 w-6 animate-spin" />
+                  </div>
+                ) : templatesAprovados.length === 0 ? (
+                  <div className="text-center py-4 text-muted-foreground">
+                    <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                    <p>Nenhum template aprovado</p>
+                    <p className="text-xs mt-1">Crie templates no Console do Twilio</p>
+                  </div>
+                ) : (
+                  <>
+                    <Select
+                      value={templateSelecionado?.sid || ''}
+                      onValueChange={(sid) => {
+                        const template = templatesAprovados.find(t => t.sid === sid)
+                        setTemplateSelecionado(template || null)
+                        setVariaveis({})
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecione um template" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {templatesAprovados.map((template) => (
+                          <SelectItem key={template.sid} value={template.sid}>
+                            {template.nome}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+
+                    {templateSelecionado && (
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <Badge className="bg-green-500/20 text-green-400 border-0">Aprovado</Badge>
+                          <Button variant="ghost" size="sm" onClick={() => setIsPreviewOpen(true)}>
+                            <Eye className="h-4 w-4 mr-1" />
+                            Preview
+                          </Button>
+                        </div>
+                        {templateSelecionado.corpo && (
+                          <div className="p-3 bg-muted/50 rounded-lg text-sm whitespace-pre-wrap max-h-32 overflow-y-auto">
+                            {templateSelecionado.corpo}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+              </CardContent>
+            </Card>
+
+            {templateSelecionado && variaveisTemplate.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Variaveis</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {variaveisTemplate.map((v) => (
+                    <div key={v} className="space-y-2">
+                      <Label>Variavel {v}</Label>
+                      <Input
+                        value={variaveis[v] || ''}
+                        onChange={(e) => setVariaveis(prev => ({ ...prev, [v]: e.target.value }))}
+                        placeholder={'Valor para variavel ' + v}
+                      />
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            )}
+          </div>
+
+          <div className="space-y-6">
+            {tagsDisponiveis.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Enviar por Tags</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex flex-wrap gap-2">
+                    {tagsDisponiveis.map((tag) => (
+                      <Badge
+                        key={tag.id}
+                        variant={tagsSelecionadas.includes(tag.id) ? 'default' : 'secondary'}
+                        className="cursor-pointer"
+                        style={tagsSelecionadas.includes(tag.id) ? { backgroundColor: tag.cor || '#3B82F6' } : {}}
+                        onClick={() => toggleTag(tag.id)}
+                      >
+                        {tag.nome} ({tag.totalContatos || 0})
+                      </Badge>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Contatos</CardTitle>
+                <CardDescription>{contatosSelecionados.length} selecionado(s)</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Buscar..."
+                    value={busca}
+                    onChange={(e) => setBusca(e.target.value)}
+                    className="flex-1"
+                  />
+                  <Button variant="secondary" size="sm" onClick={selecionarTodos}>
+                    {contatosSelecionados.length === contatosFiltrados.length ? 'Limpar' : 'Todos'}
+                  </Button>
+                </div>
+                <div className="border rounded-lg p-3 max-h-64 overflow-y-auto space-y-2">
+                  {contatosFiltrados.map((contato: any) => (
+                    <div key={contato.id} className="flex items-center space-x-2">
+                      <Checkbox
+                        checked={contatosSelecionados.includes(contato.id)}
+                        onCheckedChange={() => toggleContato(contato.id)}
+                      />
+                      <span className="text-sm">{contato.nome} ({contato.numeroWhatsapp})</span>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Button
+              size="lg"
+              className="w-full"
+              onClick={handleEnviar}
+              disabled={isPending || !templateSelecionado || totalDestinatarios === 0}
+            >
+              {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
+              Enviar para {totalDestinatarios} destinatario(s)
+            </Button>
+          </div>
+        </div>
+        </>
+      ) : (
+        /* MODO GRUPOS - BAILEYS COM TEXTO LIVRE */
+        <div className="grid gap-6 lg:grid-cols-2">
+          <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Instancia Baileys</CardTitle>
               </CardHeader>
               <CardContent>
                 <Select value={instanceId} onValueChange={setInstanceId}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Selecione uma instância" />
+                    <SelectValue placeholder="Selecione uma instancia" />
                   </SelectTrigger>
                   <SelectContent>
-                    {instances
-                      ?.filter((i: any) => i.status === 'connected')
-                      .map((instance: any) => (
-                        <SelectItem key={instance.id} value={String(instance.id)}>
-                          {instance.displayName || instance.instanceName}
-                        </SelectItem>
-                      ))}
+                    {instances?.filter((i: any) => i.status === 'connected').map((instance: any) => (
+                      <SelectItem key={instance.id} value={String(instance.id)}>
+                        {instance.displayName || instance.instanceName}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </CardContent>
             </Card>
-          )}
 
-          {/* Seleção de Destinatários */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">
-                {tipoDestino === 'grupos' ? 'Grupos' : 'Contatos'}
-              </CardTitle>
-              <CardDescription>
-                {tipoDestino === 'grupos'
-                  ? `${gruposSelecionados.length} grupo(s) selecionado(s)`
-                  : `${contatosSelecionados.length} contato(s) + ${tagsSelecionadas.length} tag(s)`}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {tipoDestino === 'grupos' ? (
-                <div className="border rounded-lg p-4 max-h-48 overflow-y-auto space-y-2">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Grupos</CardTitle>
+                <CardDescription>{gruposSelecionados.length} selecionado(s)</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="border rounded-lg p-3 max-h-64 overflow-y-auto space-y-2">
                   {grupos?.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">Nenhum grupo disponível</p>
+                    <p className="text-sm text-muted-foreground">Nenhum grupo</p>
                   ) : (
                     grupos?.map((grupo: any) => (
                       <div key={grupo.id} className="flex items-center space-x-2">
                         <Checkbox
-                          id={`grupo-${grupo.id}`}
                           checked={gruposSelecionados.includes(grupo.id)}
                           onCheckedChange={() => toggleGrupo(grupo.id)}
                         />
-                        <label htmlFor={`grupo-${grupo.id}`} className="text-sm cursor-pointer">
-                          {grupo.nome}
-                        </label>
+                        <span className="text-sm">{grupo.nome}</span>
                       </div>
                     ))
                   )}
                 </div>
-              ) : (
-                <>
-                  {/* Tags */}
-                  {tagsDisponiveis.length > 0 && (
-                    <div className="space-y-2">
-                      <Label>Enviar por Categoria (Tags)</Label>
-                      <p className="text-xs text-muted-foreground mb-2">
-                        Selecione uma ou mais tags para enviar para todos os contatos dessas categorias
-                      </p>
-                      <div className="flex flex-wrap gap-2">
-                        {tagsDisponiveis.map((tag) => (
-                          <Badge
-                            key={tag.id}
-                            variant={tagsSelecionadas.includes(tag.id) ? 'default' : 'outline'}
-                            className="cursor-pointer transition-all hover:scale-105"
-                            style={
-                              tagsSelecionadas.includes(tag.id)
-                                ? { backgroundColor: tag.cor || '#3B82F6' }
-                                : { borderColor: tag.cor || '#6B7280', color: tag.cor || '#6B7280' }
-                            }
-                            onClick={() => toggleTag(tag.id)}
-                          >
-                            {tag.nome} ({tag.totalContatos || 0})
-                          </Badge>
-                        ))}
-                      </div>
-                      {tagsSelecionadas.length > 0 && (
-                        <p className="text-sm text-green-600 font-medium mt-2">
-                          {totalContatosTags} contato(s) serão notificados
-                        </p>
-                      )}
-                    </div>
-                  )}
+              </CardContent>
+            </Card>
+          </div>
 
-                  {/* Contatos */}
-                  <div className="space-y-2">
-                    <Label>Ou selecione contatos</Label>
-                    <div className="border rounded-lg p-4 max-h-48 overflow-y-auto space-y-2">
-                      {!contatos || contatos.length === 0 ? (
-                        <p className="text-sm text-muted-foreground">Nenhum contato disponível</p>
-                      ) : (
-                        contatos.map((contato: any) => (
-                          <div key={contato.id} className="flex items-center space-x-2">
-                            <Checkbox
-                              id={`contato-${contato.id}`}
-                              checked={contatosSelecionados.includes(contato.id)}
-                              onCheckedChange={() => toggleContato(contato.id)}
-                            />
-                            <label htmlFor={`contato-${contato.id}`} className="text-sm cursor-pointer">
-                              {contato.nome} ({contato.numeroWhatsapp})
-                            </label>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                </>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Coluna 2: Mensagem */}
-        <div className="space-y-6">
-          {/* Tipo de Mensagem */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Tipo de Mensagem</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-wrap gap-2">
-                {(['texto', 'imagem', 'video', 'audio', 'documento'] as TipoMensagem[]).map((tipo) => (
-                  <Button
-                    key={tipo}
-                    variant={tipoMensagem === tipo ? 'primary' : 'secondary'}
-                    size="sm"
-                    onClick={() => {
-                      setTipoMensagem(tipo)
-                      if (tipo === 'texto') setAnexo(null)
-                    }}
-                  >
-                    {getTipoIcon(tipo)}
-                    <span className="ml-2 capitalize">{tipo}</span>
-                  </Button>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Upload de Arquivo */}
-          {tipoMensagem !== 'texto' && (
+          <div className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg">Arquivo</CardTitle>
-                <CardDescription>Anexe {tipoMensagem === 'imagem' ? 'uma imagem' : tipoMensagem === 'video' ? 'um vídeo' : tipoMensagem === 'audio' ? 'um áudio' : 'um documento'}</CardDescription>
+                <CardTitle className="text-lg">Mensagem</CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-4">
+                <Textarea
+                  placeholder="Digite sua mensagem..."
+                  className="min-h-[150px]"
+                  value={mensagem}
+                  onChange={(e) => setMensagem(e.target.value)}
+                />
+
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept={getAcceptTypes()}
+                  accept="image/*,video/*,audio/*,.pdf,.doc,.docx"
                   className="hidden"
                   onChange={(e) => {
                     const file = e.target.files?.[0]
@@ -482,24 +665,18 @@ export default function EnviarPage() {
                 {!anexo ? (
                   <Button
                     variant="secondary"
-                    className="w-full h-24 border-dashed border-2"
+                    className="w-full"
                     onClick={() => fileInputRef.current?.click()}
                     disabled={uploading}
                   >
-                    {uploading ? (
-                      <Loader2 className="h-6 w-6 animate-spin" />
-                    ) : (
-                      <div className="flex flex-col items-center gap-2">
-                        <Upload className="h-6 w-6" />
-                        <span>Clique para selecionar arquivo</span>
-                      </div>
-                    )}
+                    {uploading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Upload className="h-4 w-4 mr-2" />}
+                    Anexar arquivo (opcional)
                   </Button>
                 ) : (
                   <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
                     <div className="flex items-center gap-2">
-                      {getTipoIcon(tipoMensagem)}
-                      <span className="text-sm truncate max-w-[200px]">{anexo.fileName}</span>
+                      <Image className="h-4 w-4" />
+                      <span className="text-sm truncate">{anexo.fileName}</span>
                     </div>
                     <Button variant="ghost" size="sm" onClick={() => setAnexo(null)}>
                       <X className="h-4 w-4" />
@@ -508,137 +685,158 @@ export default function EnviarPage() {
                 )}
               </CardContent>
             </Card>
-          )}
 
-          {/* Mensagem / Legenda */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">
-                {tipoMensagem === 'texto' ? 'Mensagem' : 'Legenda (opcional)'}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Textarea
-                placeholder={tipoMensagem === 'texto' ? 'Digite sua mensagem...' : 'Digite uma legenda para a mídia...'}
-                className="min-h-[150px]"
-                value={mensagem}
-                onChange={(e) => setMensagem(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground mt-2">{mensagem.length} caracteres</p>
-            </CardContent>
-          </Card>
-
-          {/* Botão Enviar */}
-          <Button
-            size="lg"
-            className="w-full"
-            onClick={handleEnviar}
-            disabled={enviarMutation.isPending}
-          >
-            {enviarMutation.isPending ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Enviando...
-              </>
-            ) : (
-              <>
-                <Send className="mr-2 h-4 w-4" />
-                Enviar {tipoMensagem === 'texto' ? 'Mensagem' : tipoMensagem.charAt(0).toUpperCase() + tipoMensagem.slice(1)}
-              </>
-            )}
-          </Button>
-
-          {/* Resumo */}
-          {(gruposSelecionados.length > 0 || contatosSelecionados.length > 0 || tagsSelecionadas.length > 0) && (
-            <Card className="bg-muted/50">
-              <CardContent className="pt-4">
-                <p className="text-sm font-medium mb-2">Resumo do Envio:</p>
-                <ul className="text-sm space-y-1">
-                  <li className="flex items-center gap-2">
-                    <CheckCircle className="h-3 w-3 text-green-600" />
-                    Tipo: {tipoMensagem}
-                  </li>
-                  {tipoDestino === 'grupos' && gruposSelecionados.length > 0 && (
-                    <li className="flex items-center gap-2">
-                      <CheckCircle className="h-3 w-3 text-green-600" />
-                      {gruposSelecionados.length} grupo(s) via Baileys
-                    </li>
-                  )}
-                  {tipoDestino === 'contatos' && contatosSelecionados.length > 0 && (
-                    <li className="flex items-center gap-2">
-                      <CheckCircle className="h-3 w-3 text-green-600" />
-                      {contatosSelecionados.length} contato(s) via Twilio
-                    </li>
-                  )}
-                  {tipoDestino === 'contatos' && tagsSelecionadas.length > 0 && (
-                    <li className="flex items-center gap-2">
-                      <CheckCircle className="h-3 w-3 text-green-600" />
-                      {tagsSelecionadas.length} tag(s) selecionada(s)
-                    </li>
-                  )}
-                  {anexo && (
-                    <li className="flex items-center gap-2">
-                      <CheckCircle className="h-3 w-3 text-green-600" />
-                      Arquivo: {anexo.fileName}
-                    </li>
-                  )}
-                </ul>
-              </CardContent>
-            </Card>
-          )}
+            <Button
+              size="lg"
+              className="w-full"
+              onClick={handleEnviar}
+              disabled={isPending || gruposSelecionados.length === 0 || !instanceId}
+            >
+              {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
+              Enviar para {gruposSelecionados.length} grupo(s)
+            </Button>
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* Preview Dialog */}
+      <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{templateSelecionado?.nome}</DialogTitle>
+            <DialogDescription>Preview do template</DialogDescription>
+          </DialogHeader>
+          {templateSelecionado && (
+            <div className="p-4 bg-muted rounded-lg whitespace-pre-wrap text-sm">
+              {templateSelecionado.corpo || 'Sem corpo'}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirmacao de Envio com Custos */}
+      <Dialog open={isConfirmOpen} onOpenChange={setIsConfirmOpen}>
+        <DialogContent className="w-[95vw] max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base sm:text-lg">
+              <Calculator className="h-5 w-5 text-primary" />
+              Confirmar Envio
+            </DialogTitle>
+            <DialogDescription className="text-xs sm:text-sm">
+              Revise os custos estimados antes de enviar
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 sm:space-y-4">
+            {/* Resumo do Envio */}
+            <div className="p-3 sm:p-4 bg-muted/50 rounded-lg space-y-2">
+              <div className="flex justify-between text-xs sm:text-sm">
+                <span className="text-muted-foreground">Template:</span>
+                <span className="font-medium truncate ml-2 max-w-[150px]">{templateSelecionado?.nome}</span>
+              </div>
+              <div className="flex justify-between text-xs sm:text-sm">
+                <span className="text-muted-foreground">Destinatarios:</span>
+                <span className="font-medium">{totalDestinatarios}</span>
+              </div>
+            </div>
+
+            {/* Custos */}
+            <div className="space-y-2 sm:space-y-3">
+              <div className="flex items-center justify-between p-2 sm:p-3 bg-blue-500/10 rounded-lg">
+                <div className="flex items-center gap-2">
+                  <DollarSign className="h-4 w-4 text-blue-500" />
+                  <span className="text-xs sm:text-sm">Custo/msg:</span>
+                </div>
+                <span className="font-mono font-medium text-xs sm:text-sm">${CUSTO_POR_MENSAGEM_USD.toFixed(4)}</span>
+              </div>
+
+              <div className="flex items-center justify-between p-2 sm:p-3 bg-primary/10 rounded-lg">
+                <div className="flex items-center gap-2">
+                  <Calculator className="h-4 w-4 text-primary" />
+                  <span className="text-xs sm:text-sm font-medium">Total estimado:</span>
+                </div>
+                <span className="font-mono font-bold text-base sm:text-lg">${custoEstimado.toFixed(4)}</span>
+              </div>
+            </div>
+
+            {/* Saldo */}
+            <div className="border-t pt-3 sm:pt-4 space-y-2">
+              <div className="flex justify-between text-xs sm:text-sm">
+                <span className="text-muted-foreground">Saldo atual:</span>
+                <span className="font-mono font-medium">${saldoAtual.toFixed(4)}</span>
+              </div>
+              <div className="flex justify-between text-xs sm:text-sm">
+                <span className="text-muted-foreground">Saldo apos envio:</span>
+                <span className={`font-mono font-medium ${saldoAposEnvio < 0 ? 'text-red-500' : 'text-green-500'}`}>
+                  ${saldoAposEnvio.toFixed(4)}
+                </span>
+              </div>
+              <div className="flex justify-between text-xs sm:text-sm pt-2 border-t">
+                <span className="text-muted-foreground">Msgs possiveis:</span>
+                <span className="font-mono font-bold text-primary">{mensagensRestantes.toLocaleString()}</span>
+              </div>
+            </div>
+
+            {/* Aviso de saldo insuficiente */}
+            {!temSaldoSuficiente && (
+              <div className="flex items-start gap-2 sm:gap-3 p-2 sm:p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
+                <AlertTriangle className="h-4 w-4 sm:h-5 sm:w-5 text-red-500 flex-shrink-0 mt-0.5" />
+                <div className="text-xs sm:text-sm text-red-600">
+                  <p className="font-medium">Saldo insuficiente!</p>
+                  <p>Precisa de mais ${Math.abs(saldoAposEnvio).toFixed(4)}</p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 pt-3 sm:pt-4">
+            <Button variant="secondary" className="flex-1 order-2 sm:order-1" onClick={() => setIsConfirmOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              className="flex-1 order-1 sm:order-2"
+              onClick={confirmarEnvio}
+              disabled={!temSaldoSuficiente || isPending}
+            >
+              {isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Enviando...
+                </>
+              ) : (
+                <>
+                  <Send className="h-4 w-4 mr-2" />
+                  Confirmar
+                </>
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Info */}
       <Card className="border-primary/20 bg-primary/5">
         <CardContent className="pt-6">
           <div className="flex items-start gap-4">
             <div className="p-2 rounded-lg bg-primary/10">
-              <Send className="h-6 w-6 text-primary" />
+              <MessageSquare className="h-6 w-6 text-primary" />
             </div>
             <div className="flex-1">
-              <h3 className="font-semibold text-primary mb-2">Como funciona</h3>
+              <h3 className="font-semibold text-primary mb-2">Modos de Envio</h3>
               <ul className="text-sm space-y-1.5 text-muted-foreground">
                 <li className="flex items-center gap-2">
                   <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
-                  <strong>Contatos individuais:</strong> Usa Twilio (oficial, seguro, sem risco de ban)
+                  <strong>Contatos:</strong> Templates aprovados via Twilio (oficial)
                 </li>
                 <li className="flex items-center gap-2">
                   <span className="h-1.5 w-1.5 rounded-full bg-yellow-500" />
-                  <strong>Grupos:</strong> Usa Baileys (requer instância conectada)
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />
-                  <strong>Mídia para grupos:</strong> Upload local funciona normalmente
+                  <strong>Grupos:</strong> Texto livre via Baileys (requer instancia)
                 </li>
               </ul>
             </div>
           </div>
         </CardContent>
       </Card>
-
-      {/* Aviso sobre mídia Twilio */}
-      {tipoDestino === 'contatos' && tipoMensagem !== 'texto' && (
-        <Card className="border-yellow-500/50 bg-yellow-500/10">
-          <CardContent className="pt-6">
-            <div className="flex items-start gap-4">
-              <div className="p-2 rounded-lg bg-yellow-500/20">
-                <Image className="h-6 w-6 text-yellow-600" />
-              </div>
-              <div className="flex-1">
-                <h3 className="font-semibold text-yellow-700 mb-2">Aviso: Mídia via Twilio</h3>
-                <p className="text-sm text-yellow-700/80 mb-2">
-                  O Twilio requer que arquivos de mídia estejam hospedados em URLs <strong>públicas acessíveis pela internet</strong>.
-                </p>
-                <p className="text-sm text-yellow-700/80">
-                  <strong>Solução:</strong> Use serviços como AWS S3, Cloudinary ou Firebase Storage para hospedar seus arquivos,
-                  ou envie apenas mensagens de texto para contatos via Twilio.
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
     </div>
   )
 }

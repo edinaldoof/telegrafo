@@ -1,103 +1,76 @@
 @import "tailwindcss";
 
 :root {
-  /* Tema escuro por padrão */
-  --background: 220 15% 8%; /* Fundo muito escuro */
-  --foreground: 210 40% 96%; /* Texto bem claro */
-  --primary: 142 78% 42%; /* WhatsApp green */
+  /* Tema claro sofisticado */
+  --background: 210 20% 98%; /* Cinza-azulado muito claro */
+  --foreground: 220 20% 14%; /* Texto escuro elegante */
+  --primary: 152 60% 38%; /* Verde sofisticado, menos saturado */
   --primary-foreground: 0 0% 100%;
-  --secondary: 220 13% 18%;
-  --secondary-foreground: 210 40% 98%;
-  --muted: 217 19% 18%;
-  --muted-foreground: 215 20% 75%;
-  --accent: 142 60% 50%;
+  --secondary: 220 14% 94%; /* Cinza neutro claro */
+  --secondary-foreground: 220 20% 25%;
+  --muted: 220 14% 96%;
+  --muted-foreground: 220 10% 46%;
+  --accent: 152 45% 48%;
   --accent-foreground: 0 0% 100%;
-  --destructive: 0 62% 45%;
+  --destructive: 0 72% 51%;
   --destructive-foreground: 0 0% 100%;
-  --border: 217 19% 22%;
-  --input: 217 19% 20%;
-  --ring: 142 78% 42%;
+  --border: 220 13% 90%;
+  --input: 210 15% 98%;
+  --ring: 152 60% 38%;
   --radius: 0.75rem;
-  --chart-1: 142 76% 42%;
-  --chart-2: 160 60% 45%;
-  --chart-3: 30 80% 55%;
-  --chart-4: 280 65% 60%;
-  --chart-5: 340 75% 55%;
-  --success: 142 76% 42%;
-  --warning: 38 92% 50%;
+  --chart-1: 152 60% 38%;
+  --chart-2: 199 80% 44%;
+  --chart-3: 43 96% 56%;
+  --chart-4: 262 83% 58%;
+  --chart-5: 339 90% 51%;
+  --success: 152 60% 38%;
+  --warning: 43 96% 56%;
   --info: 199 89% 48%;
-  --card: 220 13% 12%;
-  --card-foreground: 210 40% 98%;
-  --popover: 220 13% 12%;
-  --popover-foreground: 210 40% 98%;
-}
-
-.dark {
-  --background: 220 15% 8%;
-  --foreground: 210 40% 96%;
-  --primary: 142 70% 48%;
-  --primary-foreground: 0 0% 100%;
-  --secondary: 220 13% 18%;
-  --secondary-foreground: 210 40% 98%;
-  --muted: 217 19% 18%;
-  --muted-foreground: 215 20% 75%;
-  --accent: 142 60% 40%;
-  --accent-foreground: 0 0% 100%;
-  --destructive: 0 62% 45%;
-  --destructive-foreground: 0 0% 100%;
-  --border: 217 19% 22%;
-  --input: 217 19% 20%;
-  --ring: 142 70% 48%;
-  --card: 220 13% 12%;
-  --card-foreground: 210 40% 98%;
-  --popover: 220 13% 12%;
-  --popover-foreground: 210 40% 98%;
+  --card: 210 15% 99%;
+  --card-foreground: 220 20% 14%;
+  --popover: 210 15% 99%;
+  --popover-foreground: 220 20% 14%;
 }
 
 * {
   border-color: hsl(var(--border));
   scrollbar-width: thin;
-  scrollbar-color: hsl(var(--primary) / 0.7) hsl(var(--muted));
+  scrollbar-color: hsl(var(--primary) / 0.3) transparent;
 }
 
 *::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 *::-webkit-scrollbar-track {
-  background: hsl(var(--muted));
-  border-radius: 8px;
+  background: transparent;
 }
 
 *::-webkit-scrollbar-thumb {
-  background: hsl(var(--primary) / 0.7);
-  border-radius: 8px;
+  background: hsl(var(--primary) / 0.25);
+  border-radius: 6px;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--primary));
+  background: hsl(var(--primary) / 0.4);
 }
 
 body {
-  background: linear-gradient(135deg,
-    hsl(var(--background)) 0%,
-    hsl(220 15% 10%) 50%,
-    hsl(var(--background)) 100%);
+  background: hsl(var(--background));
   color: hsl(var(--foreground));
   min-height: 100vh;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
-/* Forçar tema escuro globalmente */
 html {
-  color-scheme: dark;
+  color-scheme: light;
 }
 
-/* Beautiful animations */
+/* Animações suaves */
 @keyframes slideIn {
   from {
-    transform: translateY(10px);
+    transform: translateY(8px);
     opacity: 0;
   }
   to {
@@ -113,11 +86,16 @@ html {
 
 @keyframes pulse {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  50% { opacity: 0.6; }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
 }
 
 .animate-slide-in {
-  animation: slideIn 0.3s ease-out;
+  animation: slideIn 0.4s ease-out;
 }
 
 .animate-fade-in {
@@ -128,79 +106,78 @@ html {
   animation: pulse 2s ease-in-out infinite;
 }
 
-/* Card hover effects */
+/* Card hover - sutil */
 .card-hover {
-  transition: all 0.3s ease;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .card-hover:hover {
-  transform: translateY(-5px);
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08);
 }
 
-/* Glass effect para tema escuro */
+/* Glass effect - modo claro */
 .glass {
-  background: rgba(30, 30, 35, 0.85);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 
 .glass-dark {
-  background: rgba(20, 20, 25, 0.9);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: hsl(220 14% 96%);
+  border: 1px solid hsl(var(--border));
 }
 
-/* Gradient text com melhor contraste */
+/* Gradient text */
 .gradient-text {
   background: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--accent)) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  font-weight: 600;
+  font-weight: 700;
 }
 
-/* Smooth transitions */
-* {
-  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
-}
-
-/* Garantir contraste em todos os textos */
-.text-muted-foreground {
-  color: hsl(var(--muted-foreground)) !important;
-}
-
-.text-foreground {
-  color: hsl(var(--foreground)) !important;
-}
-
-/* Ajustar badges e cards para melhor visibilidade */
-.badge {
-  font-weight: 500;
-}
-
-/* Inputs com melhor contraste */
+/* Inputs */
 input, textarea, select {
   background: hsl(var(--input));
   color: hsl(var(--foreground));
-  border-color: hsl(var(--border));
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
 }
 
 input:focus, textarea:focus, select:focus {
   border-color: hsl(var(--primary));
-  outline: 2px solid hsl(var(--primary) / 0.2);
-  outline-offset: 2px;
+  outline: none;
+  box-shadow: 0 0 0 3px hsl(var(--primary) / 0.1);
 }
 
-/* Botões com melhor contraste */
-button:not(.bg-primary):not(.bg-destructive) {
-  color: hsl(var(--foreground));
+input::placeholder, textarea::placeholder {
+  color: hsl(var(--muted-foreground));
 }
 
-/* Modais e dialogs */
+/* Modais */
 [role="dialog"] {
   background: hsl(var(--popover));
   color: hsl(var(--popover-foreground));
+  border: 1px solid hsl(var(--border));
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.1);
+}
+
+/* Links */
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* Selection */
+::selection {
+  background: hsl(var(--primary) / 0.15);
+  color: hsl(var(--foreground));
+}
+
+/* Focus visible */
+:focus-visible {
+  outline: 2px solid hsl(var(--primary));
+  outline-offset: 2px;
 }

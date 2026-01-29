@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { sendText, isConfigured } from '@/lib/services/twilio.service'
+import { sendText, isConfiguredAsync } from '@/lib/services/twilio.service'
 import { prisma } from '@/lib/prisma'
 import { auditoriaService } from '@/lib/services/auditoria.service'
 import { AuthService } from '@/lib/auth/service'
@@ -10,16 +10,22 @@ export async function POST(request: NextRequest) {
   let usuario = 'Sistema'
 
   try {
-    if (!isConfigured()) {
+    // Usar versão async para verificar config do banco de dados
+    if (!(await isConfiguredAsync())) {
       return NextResponse.json(
         { success: false, error: 'Twilio não configurado' },
         { status: 503 }
       )
     }
 
-    const auth = await AuthService.authenticate(request)
-    if (auth) {
-      usuario = String(auth.id)
+    // Autenticação opcional - tentar obter usuário mas não falhar se não houver
+    try {
+      const auth = await AuthService.authenticate(request)
+      if (auth) {
+        usuario = String(auth.id)
+      }
+    } catch {
+      // Autenticação é opcional para este endpoint
     }
 
     const body = await request.json()

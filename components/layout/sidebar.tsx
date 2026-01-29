@@ -22,6 +22,7 @@ import {
   LogOut,
   User,
   Activity,
+  Inbox,
 } from 'lucide-react'
 
 const navigation = [
@@ -35,6 +36,7 @@ const navigation = [
   {
     section: 'Mensageria',
     items: [
+      { name: 'Inbox', href: '/inbox', icon: Inbox, badge: 'novo' },
       { name: 'Enviar Mensagens', href: '/enviar', icon: Send, badge: null },
       { name: 'Templates', href: '/templates', icon: FileText, badge: null },
       { name: 'Agendamentos', href: '/agendamentos', icon: Calendar, badge: null },
@@ -91,12 +93,12 @@ export function Sidebar() {
 
   return (
     <>
-      {/* Mobile Menu Button - Fixo no topo com melhor visibilidade */}
-      <div className="lg:hidden fixed top-0 left-0 right-0 h-16 bg-black border-b border-gray-800 shadow-lg z-40 flex items-center justify-between px-4">
+      {/* Mobile Menu Button */}
+      <div className="lg:hidden fixed top-0 left-0 right-0 h-16 bg-white border-b border-gray-200 shadow-sm z-40 flex items-center justify-between px-4">
         <div className="flex items-center gap-3">
           <button
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-            className="p-2.5 rounded-lg bg-primary hover:bg-primary/90 shadow-md hover:shadow-lg active:scale-95 transition-all"
+            className="p-2.5 rounded-lg bg-primary hover:bg-primary/90 shadow-sm hover:shadow-md active:scale-95 transition-all"
             aria-label="Toggle menu"
           >
             {isMobileMenuOpen ? (
@@ -109,7 +111,7 @@ export function Sidebar() {
             <div className="p-1.5 rounded-lg bg-gradient-to-r from-primary to-accent shadow-sm">
               <MessageSquare className="h-5 w-5 text-white" />
             </div>
-            <span className="ml-2 text-base font-bold text-gray-100">Telegrafo</span>
+            <span className="ml-2 text-base font-bold text-gray-800">Telegrafo</span>
           </div>
         </div>
       </div>
@@ -117,7 +119,7 @@ export function Sidebar() {
       {/* Overlay - Apenas em mobile quando menu aberto */}
       {isMobileMenuOpen && (
         <div
-          className="fixed inset-0 bg-black/70 backdrop-blur-sm z-40 lg:hidden animate-fade-in"
+          className="fixed inset-0 bg-black/30 backdrop-blur-sm z-40 lg:hidden animate-fade-in"
           onClick={() => setIsMobileMenuOpen(false)}
         />
       )}
@@ -127,20 +129,20 @@ export function Sidebar() {
         className={`
           fixed lg:static top-16 lg:top-0 bottom-0 left-0 z-50 lg:z-auto
           w-80 lg:w-72 lg:flex-shrink-0
-          bg-zinc-950 border-r border-gray-800 shadow-2xl lg:shadow-none
+          bg-white border-r border-gray-200 shadow-lg lg:shadow-none
           flex flex-col
           transform transition-all duration-300 ease-out
           ${isMobileMenuOpen ? 'translate-x-0 opacity-100' : '-translate-x-full opacity-0 lg:translate-x-0 lg:opacity-100'}
         `}
       >
         {/* Logo - Apenas desktop */}
-        <div className="hidden lg:flex h-20 items-center px-6 border-b border-gray-800">
+        <div className="hidden lg:flex h-20 items-center px-6 border-b border-gray-200">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-gradient-to-br from-primary to-accent shadow-lg">
+            <div className="p-2 rounded-xl bg-gradient-to-br from-primary to-accent shadow-md">
               <MessageSquare className="h-7 w-7 text-white" />
             </div>
             <div>
-              <h1 className="text-lg font-bold text-gray-100">Telegrafo</h1>
+              <h1 className="text-lg font-bold text-gray-800">Telegrafo</h1>
               <p className="text-xs text-gray-400">Sem código Morse necessário</p>
             </div>
           </div>
@@ -157,7 +159,7 @@ export function Sidebar() {
                   {/* Section Header */}
                   <button
                     onClick={() => toggleSection(section.section)}
-                    className="w-full flex items-center justify-between px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-gray-400 hover:text-gray-200 transition-colors"
+                    className="w-full flex items-center justify-between px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-gray-400 hover:text-gray-600 transition-colors"
                   >
                     <span>{section.section}</span>
                     <ChevronRight
@@ -180,21 +182,21 @@ export function Sidebar() {
                               group flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-xl transition-all active:scale-[0.98]
                               ${
                                 isActive
-                                  ? 'bg-gradient-to-r from-primary to-accent text-white shadow-lg shadow-primary/20'
-                                  : 'text-gray-300 hover:bg-primary/10 hover:text-primary'
+                                  ? 'bg-primary/10 text-primary border-l-2 border-primary font-semibold'
+                                  : 'text-gray-600 hover:bg-gray-100 hover:text-primary'
                               }
                             `}
                           >
-                            <Icon className={`h-5 w-5 flex-shrink-0 ${isActive ? 'text-white' : 'group-hover:scale-110 transition-transform'}`} />
+                            <Icon className={`h-5 w-5 flex-shrink-0 ${isActive ? 'text-primary' : 'group-hover:scale-110 transition-transform'}`} />
                             <span className="flex-1">{item.name}</span>
                             {item.badge && (
                               <span className={`
                                 px-2 py-0.5 text-xs font-semibold rounded-full
                                 ${item.badge === 'novo'
-                                  ? 'bg-green-500 text-white'
+                                  ? 'bg-green-100 text-green-700'
                                   : item.badge === 'em breve'
-                                  ? 'bg-gray-500 text-white'
-                                  : 'bg-blue-500 text-white'
+                                  ? 'bg-gray-100 text-gray-500'
+                                  : 'bg-blue-100 text-blue-700'
                                 }
                               `}>
                                 {item.badge}
@@ -212,21 +214,21 @@ export function Sidebar() {
         </nav>
 
         {/* Footer with User Info */}
-        <div className="border-t border-gray-800 p-4">
+        <div className="border-t border-gray-200 p-4">
           {user && (
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
-                <div className="p-1.5 rounded-lg bg-gray-800">
-                  <User className="h-4 w-4 text-gray-400" />
+                <div className="p-1.5 rounded-lg bg-gray-100">
+                  <User className="h-4 w-4 text-gray-500" />
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-gray-200">{user.id}</p>
-                  <p className="text-xs text-gray-500 capitalize">{user.role}</p>
+                  <p className="text-sm font-medium text-gray-700">{user.id}</p>
+                  <p className="text-xs text-gray-400 capitalize">{user.role}</p>
                 </div>
               </div>
               <button
                 onClick={logout}
-                className="p-2 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                className="p-2 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
                 title="Sair"
               >
                 <LogOut className="h-4 w-4" />
@@ -234,7 +236,7 @@ export function Sidebar() {
             </div>
           )}
           <div className="text-center">
-            <p className="text-xs text-gray-500">v1.0.0</p>
+            <p className="text-xs text-gray-400">v1.0.0</p>
           </div>
         </div>
       </aside>

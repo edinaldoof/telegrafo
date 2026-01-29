@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { readFileSync, writeFileSync, existsSync } from 'fs'
 import { join } from 'path'
 import { config, maskSensitiveValue } from '@/lib/config'
+import { dynamicConfigService, CONFIG_DEFINITIONS } from '@/lib/services/dynamic-config.service'
+import { refreshConfigCache } from '@/lib/services/twilio.service'
 
 // Get password from environment variable - no more hardcoded values
 function getConfigPassword(): string {
@@ -18,7 +20,7 @@ function getConfigPassword(): string {
   return password
 }
 
-// Função para salvar no .env.local
+// Função para salvar no .env.local (mantida para backup/compatibilidade)
 function saveEnvFile(envVars: Record<string, string>): void {
   const envLocalPath = join(process.cwd(), '.env.local')
 
@@ -55,60 +57,78 @@ function saveEnvFile(envVars: Record<string, string>): void {
 
 /**
  * GET /api/config
- * Retorna configurações atuais do process.env
+ * Retorna configurações atuais (prioridade: banco > process.env)
  * Nota: Protegido pelo sistema de autenticação da aplicação
  */
 export async function GET(request: NextRequest) {
   try {
-    // Ler diretamente do process.env (já carregado pelo Next.js)
+    // Buscar todas as chaves conhecidas
+    const keys = Object.keys(CONFIG_DEFINITIONS)
+    const dbConfigs = await dynamicConfigService.getMultiple(keys)
+
+    // Montar resposta com valores do banco ou fallback para env
+    const configData: Record<string, string> = {}
+
+    for (const key of keys) {
+      const definition = CONFIG_DEFINITIONS[key]
+      const value = dbConfigs[key] || process.env[key] || ''
+
+      // Mascarar valores sensíveis
+      if (definition?.isSecret && value) {
+        configData[key] = maskSensitiveValue(value)
+      } else {
+        configData[key] = value
+      }
+    }
+
+    // Adicionar DATABASE_URL (apenas do env, não editável dinamicamente)
+    configData.DATABASE_URL = maskSensitiveValue(process.env.DATABASE_URL)
+
+    // Adicionar flag indicando fonte dos dados
+    return NextResponse.json({
+      ...configData,
+      _meta: {
+        source: 'database',
+        dynamicReload: true,
+        message: 'Configurações carregadas do banco de dados. Alterações são aplicadas em tempo real.'
+      }
+    })
+  } catch (error) {
+    console.error('Erro ao ler configurações:', error)
+
+    // Fallback para env em caso de erro no banco
     const configData = {
-      // Twilio
       TWILIO_ACCOUNT_SID: process.env.TWILIO_ACCOUNT_SID || '',
       TWILIO_AUTH_TOKEN: maskSensitiveValue(process.env.TWILIO_AUTH_TOKEN),
       TWILIO_WHATSAPP_NUMBER: process.env.TWILIO_WHATSAPP_NUMBER || '',
-
-      // WhatsApp Business
       WHATSAPP_BUSINESS_PHONE_ID: process.env.WHATSAPP_BUSINESS_PHONE_ID || '',
       WHATSAPP_BUSINESS_TOKEN: maskSensitiveValue(process.env.WHATSAPP_BUSINESS_TOKEN),
-
-      // WhatsApp Híbrido API
       WHATSAPP_API_URL: process.env.WHATSAPP_API_URL || '',
       WHATSAPP_API_KEY: maskSensitiveValue(process.env.WHATSAPP_API_KEY),
-
-      // Database
       DATABASE_URL: maskSensitiveValue(process.env.DATABASE_URL),
-
-      // Cloudinary
       CLOUDINARY_CLOUD_NAME: process.env.CLOUDINARY_CLOUD_NAME || '',
       CLOUDINARY_API_KEY: process.env.CLOUDINARY_API_KEY || '',
       CLOUDINARY_API_SECRET: maskSensitiveValue(process.env.CLOUDINARY_API_SECRET),
-
-      // App
       NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL || '',
-
-      // Evolution API
       EVOLUTION_API_URL: process.env.EVOLUTION_API_URL || '',
       EVOLUTION_API_KEY: maskSensitiveValue(process.env.EVOLUTION_API_KEY),
       EVOLUTION_INSTANCE_NAME: process.env.EVOLUTION_INSTANCE_NAME || '',
-
-      // Admin
       ADMIN_USERNAME: process.env.ADMIN_USERNAME || '',
       ADMIN_PASSWORD: maskSensitiveValue(process.env.ADMIN_PASSWORD),
+      _meta: {
+        source: 'environment',
+        dynamicReload: false,
+        message: 'Erro ao acessar banco. Usando configurações do ambiente.'
+      }
     }
 
     return NextResponse.json(configData)
-  } catch (error) {
-    console.error('Erro ao ler configurações:', error)
-    return NextResponse.json(
-      { error: 'Erro ao ler configurações' },
-      { status: 500 }
-    )
   }
 }
 
 /**
  * POST /api/config
- * Atualiza configurações no .env.local
+ * Atualiza configurações no banco de dados (tempo real) e .env.local (backup)
  * Nota: Protegido pelo sistema de autenticação da aplicação
  */
 export async function POST(request: NextRequest) {
@@ -120,7 +140,10 @@ export async function POST(request: NextRequest) {
 
     Object.entries(newConfig).forEach(([key, value]) => {
       if (typeof value === 'string' && value && !value.includes('****')) {
-        validConfig[key] = value
+        // Ignorar _meta e DATABASE_URL
+        if (key !== '_meta' && key !== 'DATABASE_URL') {
+          validConfig[key] = value
+        }
       }
     })
 
@@ -131,17 +154,54 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    saveEnvFile(validConfig)
+    // 1. Salvar no banco de dados (aplicação imediata)
+    await dynamicConfigService.setMultiple(validConfig)
+
+    // 2. Invalidar caches dos serviços
+    dynamicConfigService.invalidateCache()
+    refreshConfigCache()
+
+    // 3. Salvar também no .env.local como backup
+    try {
+      saveEnvFile(validConfig)
+    } catch (envError) {
+      console.warn('Não foi possível salvar no .env.local (backup):', envError)
+    }
 
     return NextResponse.json({
       success: true,
-      message: 'Configurações salvas! Reinicie a aplicação para aplicar as mudanças.',
+      message: 'Configurações salvas e aplicadas em tempo real!',
       saved: Object.keys(validConfig),
+      requiresRestart: false, // Não precisa mais reiniciar!
+      appliedImmediately: true
     })
   } catch (error) {
     console.error('Erro ao salvar configurações:', error)
     return NextResponse.json(
       { error: 'Erro ao salvar configurações' },
+      { status: 500 }
+    )
+  }
+}
+
+/**
+ * POST /api/config/migrate
+ * Migra configurações do .env para o banco de dados
+ */
+export async function PUT(request: NextRequest) {
+  try {
+    const result = await dynamicConfigService.migrateFromEnv()
+
+    return NextResponse.json({
+      success: true,
+      message: 'Migração concluída',
+      migrated: result.migrated,
+      skipped: result.skipped
+    })
+  } catch (error) {
+    console.error('Erro na migração:', error)
+    return NextResponse.json(
+      { error: 'Erro na migração de configurações' },
       { status: 500 }
     )
   }

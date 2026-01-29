@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { getStats, isConfigured } from '@/lib/services/twilio.service'
+import { getStats, isConfiguredAsync } from '@/lib/services/twilio.service'
 
 export async function GET() {
   try {
@@ -7,7 +7,7 @@ export async function GET() {
 
     return NextResponse.json({
       sucesso: true,
-      configurado: isConfigured(),
+      configurado: await isConfiguredAsync(),
       estatisticas: stats
     })
   } catch (error: any) {

@@ -17,6 +17,10 @@ import {
   Globe,
   User,
   Server,
+  Phone,
+  CheckCircle2,
+  Loader2,
+  GraduationCap,
 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -47,6 +51,9 @@ interface ConfigData {
   // Admin
   ADMIN_USERNAME: string
   ADMIN_PASSWORD: string
+  // SGE COTEC
+  SGE_API_URL: string
+  SGE_API_TOKEN: string
 }
 
 const EMPTY_CONFIG: ConfigData = {
@@ -67,6 +74,19 @@ const EMPTY_CONFIG: ConfigData = {
   EVOLUTION_INSTANCE_NAME: '',
   ADMIN_USERNAME: '',
   ADMIN_PASSWORD: '',
+  SGE_API_URL: '',
+  SGE_API_TOKEN: '',
+}
+
+interface Sender {
+  sid: string | null
+  phoneNumber: string
+  friendlyName: string
+  status: string
+  capabilities?: { whatsapp?: boolean }
+  isWhatsApp: boolean
+  isSelected?: boolean
+  isKnown?: boolean
 }
 
 export default function ConfiguracoesPage() {
@@ -74,6 +94,10 @@ export default function ConfiguracoesPage() {
   const [showPasswords, setShowPasswords] = useState<Record<string, boolean>>({})
   const [isLoading, setIsLoading] = useState(false)
   const [isLoaded, setIsLoaded] = useState(false)
+  const [senders, setSenders] = useState<Sender[]>([])
+  const [sendersLoading, setSendersLoading] = useState(false)
+  const [currentSender, setCurrentSender] = useState('')
+  const [changingSender, setChangingSender] = useState<string | null>(null)
 
   // Carregar configurações automaticamente
   const loadConfig = async () => {
@@ -94,9 +118,53 @@ export default function ConfiguracoesPage() {
     }
   }
 
+  // Carregar WhatsApp Senders
+  const loadSenders = async () => {
+    setSendersLoading(true)
+    try {
+      const res = await fetch('/api/twilio/senders')
+      if (res.ok) {
+        const data = await res.json()
+        setSenders(data.senders || [])
+        setCurrentSender(data.numeroAtual || '')
+      }
+    } catch (error) {
+      console.error('Erro ao carregar senders:', error)
+    } finally {
+      setSendersLoading(false)
+    }
+  }
+
+  // Alterar sender ativo
+  const changeSender = async (phoneNumber: string) => {
+    setChangingSender(phoneNumber)
+    try {
+      const res = await fetch('/api/twilio/senders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phoneNumber }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setCurrentSender(data.numeroAtivo || phoneNumber)
+        toast.success('Numero de envio alterado com sucesso!')
+        loadSenders() // Recarregar lista
+        loadConfig() // Recarregar config para atualizar o campo
+      } else {
+        const error = await res.json()
+        toast.error(error.erro || 'Erro ao alterar numero')
+      }
+    } catch (error: any) {
+      toast.error(error.message || 'Erro ao alterar numero')
+    } finally {
+      setChangingSender(null)
+    }
+  }
+
   // Carregar ao montar componente
   useEffect(() => {
     loadConfig()
+    loadSenders()
   }, [])
 
   // Salvar configurações
@@ -173,23 +241,24 @@ export default function ConfiguracoesPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex flex-col gap-4">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight flex items-center gap-2">
-            <Settings className="h-7 w-7 text-primary" />
+          <h1 className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight flex items-center gap-2">
+            <Settings className="h-6 w-6 sm:h-7 sm:w-7 text-primary" />
             Configurações
           </h1>
-          <p className="text-sm sm:text-base text-muted-foreground mt-2">
-            Gerencie as credenciais e variáveis de ambiente do sistema
+          <p className="text-xs sm:text-sm text-muted-foreground mt-1">
+            Gerencie as credenciais e variáveis de ambiente
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="secondary" onClick={loadConfig} disabled={isLoading}>
-            <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
-            Recarregar
+          <Button variant="secondary" size="sm" onClick={loadConfig} disabled={isLoading} className="flex-1 sm:flex-none">
+            <RefreshCw className={`mr-1 sm:mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+            <span className="hidden sm:inline">Recarregar</span>
+            <span className="sm:hidden">Reload</span>
           </Button>
-          <Button onClick={handleSave} disabled={saveMutation.isPending}>
-            <Save className="mr-2 h-4 w-4" />
+          <Button size="sm" onClick={handleSave} disabled={saveMutation.isPending} className="flex-1 sm:flex-none">
+            <Save className="mr-1 sm:mr-2 h-4 w-4" />
             {saveMutation.isPending ? 'Salvando...' : 'Salvar'}
           </Button>
         </div>
@@ -255,6 +324,105 @@ export default function ConfiguracoesPage() {
               Formato: whatsapp:+[código país][número]
             </p>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* WhatsApp Senders */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Phone className="h-5 w-5 text-green-500" />
+            WhatsApp Senders (Numeros de Envio)
+          </CardTitle>
+          <CardDescription>
+            Numeros WhatsApp disponiveis para envio de mensagens via Twilio
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {sendersLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              <span className="ml-2 text-muted-foreground">Carregando numeros...</span>
+            </div>
+          ) : senders.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <Phone className="h-12 w-12 mx-auto mb-4 opacity-50" />
+              <p>Nenhum numero WhatsApp encontrado</p>
+              <p className="text-xs mt-2">Configure suas credenciais Twilio acima</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {senders.filter(s => s.isWhatsApp || s.capabilities?.whatsapp).map((sender) => {
+                const isSelected = sender.phoneNumber === currentSender ||
+                  `whatsapp:${sender.phoneNumber}` === currentSender ||
+                  sender.phoneNumber === currentSender.replace('whatsapp:', '')
+
+                return (
+                  <div
+                    key={sender.sid || sender.phoneNumber}
+                    className={`p-3 sm:p-4 rounded-lg border ${
+                      isSelected
+                        ? 'border-green-500 bg-green-500/10'
+                        : 'border-border bg-card hover:bg-accent/50'
+                    } transition-colors`}
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                      <div className="flex items-start sm:items-center gap-3">
+                        {isSelected && (
+                          <CheckCircle2 className="h-5 w-5 text-green-500 flex-shrink-0 mt-0.5 sm:mt-0" />
+                        )}
+                        <div className="min-w-0">
+                          <p className="font-medium text-sm sm:text-base truncate">{sender.friendlyName}</p>
+                          <p className="text-xs sm:text-sm text-muted-foreground truncate">{sender.phoneNumber}</p>
+                          <div className="flex items-center flex-wrap gap-2 mt-1">
+                            <span className={`text-xs px-2 py-0.5 rounded-full ${
+                              sender.status === 'Online' || sender.status === 'active'
+                                ? 'bg-green-500/20 text-green-600'
+                                : 'bg-yellow-500/20 text-yellow-600'
+                            }`}>
+                              {sender.status}
+                            </span>
+                            {sender.isKnown && (
+                              <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-600">
+                                Producao
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      {!isSelected && (
+                        <Button
+                          size="sm"
+                          onClick={() => changeSender(sender.phoneNumber)}
+                          disabled={changingSender !== null}
+                          className="w-full sm:w-auto"
+                        >
+                          {changingSender === sender.phoneNumber ? (
+                            <>
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                              Alterando...
+                            </>
+                          ) : (
+                            'Usar este'
+                          )}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+              <Button
+                variant="secondary"
+                size="sm"
+                className="w-full mt-4"
+                onClick={loadSenders}
+                disabled={sendersLoading}
+              >
+                <RefreshCw className={`h-4 w-4 mr-2 ${sendersLoading ? 'animate-spin' : ''}`} />
+                Atualizar lista
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -402,12 +570,41 @@ export default function ConfiguracoesPage() {
         </CardContent>
       </Card>
 
+      {/* SGE COTEC API */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <GraduationCap className="h-5 w-5 text-indigo-500" />
+            SGE COTEC (Inscricoes)
+          </CardTitle>
+          <CardDescription>
+            Credenciais para sincronizar inscricoes do Sistema de Gestao Educacional
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label>URL da API</Label>
+              <Input
+                value={config.SGE_API_URL}
+                onChange={(e) => updateConfig('SGE_API_URL', e.target.value)}
+                placeholder="https://sge.cotec.go.gov.br/api/v2/inscricoes/api/index"
+              />
+              <p className="text-xs text-muted-foreground">
+                Deixe em branco para usar a URL padrao
+              </p>
+            </div>
+            <PasswordField label="Token de Autenticacao" field="SGE_API_TOKEN" placeholder="Token Bearer da API SGE" />
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Aviso */}
-      <Card className="border-yellow-500/50 bg-yellow-500/10">
+      <Card className="border-green-500/50 bg-green-500/10">
         <CardContent className="pt-6">
-          <p className="text-sm text-yellow-700 dark:text-yellow-400">
-            <strong>Importante:</strong> Após salvar as configurações, reinicie a aplicação
-            para que as mudanças entrem em vigor. Use: <code className="bg-muted px-1 rounded">pm2 restart telegrafo</code>
+          <p className="text-sm text-green-700">
+            <strong>Configurações Dinâmicas:</strong> As alterações são aplicadas em tempo real,
+            sem necessidade de reiniciar a aplicação. Basta salvar e as mudanças já estarão ativas.
           </p>
         </CardContent>
       </Card>

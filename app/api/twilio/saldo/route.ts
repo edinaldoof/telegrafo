@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
-import { getBalance, isConfigured } from '@/lib/services/twilio.service'
+import { getBalance, isConfiguredAsync } from '@/lib/services/twilio.service'
 
 export async function GET() {
   try {
-    if (!isConfigured()) {
+    if (!(await isConfiguredAsync())) {
       return NextResponse.json(
         { success: false, error: 'Twilio não configurado' },
         { status: 503 }

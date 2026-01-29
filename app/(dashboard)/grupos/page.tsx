@@ -2,15 +2,60 @@
 
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { List, Plus, MessageSquare, Trash2 } from 'lucide-react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Users,
+  Plus,
+  MessageSquare,
+  Trash2,
+  RefreshCw,
+  Crown,
+  Shield,
+  User,
+  Clock,
+  ChevronDown,
+  ChevronUp,
+  Copy,
+  Phone,
+} from 'lucide-react'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Combobox, ComboboxOption } from '@/components/ui/combobox'
 import { toast } from 'sonner'
+
+interface Membro {
+  id: number
+  numero: string
+  nome: string | null
+  ehAdmin: boolean
+  ehSuperAdmin: boolean
+  sincronizadoEm: string
+  instanceName: string | null
+}
+
+interface Grupo {
+  id: number
+  nome: string
+  numeroGrupo: number
+  whatsappGroupId: string | null
+  linkConvite: string | null
+  totalMembros: number
+  capacidadeMaxima: number
+  status: string
+  ultimaSincronizacao: string | null
+  _count?: { contatos: number }
+}
 
 export default function GruposPage() {
   const [open, setOpen] = useState(false)
@@ -22,6 +67,7 @@ export default function GruposPage() {
   const [somenteAdminsEnviam, setSomenteAdminsEnviam] = useState(true)
   const [somenteAdminsEditam, setSomenteAdminsEditam] = useState(true)
   const [grupoToDelete, setGrupoToDelete] = useState<number | null>(null)
+  const [expandedGrupo, setExpandedGrupo] = useState<number | null>(null)
   const queryClient = useQueryClient()
 
   const { data: grupos, isLoading } = useQuery({
@@ -51,12 +97,25 @@ export default function GruposPage() {
     },
   })
 
-  // Transforma contatos em opções para o Combobox
-  const contatosOptions: ComboboxOption[] = (contatos?.data || []).map((contato: { numeroWhatsapp: string; nomeContato?: string }) => ({
-    value: contato.numeroWhatsapp,
-    label: contato.nomeContato || contato.numeroWhatsapp,
-    description: contato.nomeContato ? contato.numeroWhatsapp : undefined,
-  }))
+  // Query para membros do grupo expandido
+  const { data: membrosData, isLoading: membrosLoading } = useQuery({
+    queryKey: ['grupo-membros', expandedGrupo],
+    queryFn: async () => {
+      if (!expandedGrupo) return null
+      const res = await fetch(`/api/grupos/${expandedGrupo}/membros`)
+      if (!res.ok) return null
+      return res.json()
+    },
+    enabled: !!expandedGrupo,
+  })
+
+  const contatosOptions: ComboboxOption[] = (contatos?.data || []).map(
+    (contato: { numeroWhatsapp: string; nomeContato?: string }) => ({
+      value: contato.numeroWhatsapp,
+      label: contato.nomeContato || contato.numeroWhatsapp,
+      description: contato.nomeContato ? contato.numeroWhatsapp : undefined,
+    })
+  )
 
   const createGroupMutation = useMutation({
     mutationFn: async (data: {
@@ -120,6 +179,31 @@ export default function GruposPage() {
     },
   })
 
+  const syncMutation = useMutation({
+    mutationFn: async (grupoId: number) => {
+      const res = await fetch(`/api/grupos/${grupoId}/membros`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+
+      if (!res.ok) {
+        const error = await res.json()
+        throw new Error(error.error || 'Erro ao sincronizar')
+      }
+
+      return res.json()
+    },
+    onSuccess: (data) => {
+      toast.success(`Sincronizado! ${data.totalMembros} membros encontrados`)
+      queryClient.invalidateQueries({ queryKey: ['grupos'] })
+      queryClient.invalidateQueries({ queryKey: ['grupo-membros'] })
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Erro ao sincronizar membros')
+    },
+  })
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
@@ -130,7 +214,6 @@ export default function GruposPage() {
 
     let imagemBase64: string | undefined
 
-    // Converter imagem para base64 se houver
     if (imagemFile) {
       try {
         const reader = new FileReader()
@@ -158,6 +241,29 @@ export default function GruposPage() {
 
   const connectedInstances = instances?.filter((i: any) => i.status === 'connected') || []
 
+  const formatDate = (dateString: string | null) => {
+    if (!dateString) return 'Nunca'
+    const date = new Date(dateString)
+    return date.toLocaleString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+  }
+
+  const formatPhone = (phone: string) => {
+    // Formatar número de telefone
+    if (phone.length === 13) {
+      return `+${phone.slice(0, 2)} (${phone.slice(2, 4)}) ${phone.slice(4, 9)}-${phone.slice(9)}`
+    }
+    if (phone.length === 12) {
+      return `+${phone.slice(0, 2)} (${phone.slice(2, 4)}) ${phone.slice(4, 8)}-${phone.slice(8)}`
+    }
+    return phone
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -165,12 +271,12 @@ export default function GruposPage() {
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Grupos WhatsApp</h1>
           <p className="text-sm sm:text-base text-muted-foreground mt-2">
-            Gerencie seus grupos criados automaticamente
+            Gerencie seus grupos e visualize membros
           </p>
         </div>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
-            <Button size="lg" className="w-full sm:w-auto">
+            <Button size="lg" variant="primary" className="w-full sm:w-auto">
               <Plus className="mr-2 h-4 w-4" />
               Criar Grupo
             </Button>
@@ -180,7 +286,7 @@ export default function GruposPage() {
               <DialogHeader>
                 <DialogTitle>Criar Novo Grupo</DialogTitle>
                 <DialogDescription>
-                  Crie um grupo WhatsApp com um contato inicial. O link de convite será gerado automaticamente.
+                  Crie um grupo WhatsApp com um contato inicial.
                 </DialogDescription>
               </DialogHeader>
               <div className="grid gap-4 py-4">
@@ -195,31 +301,28 @@ export default function GruposPage() {
                   />
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="contato">Número do Contato Inicial</Label>
+                  <Label htmlFor="contato">Contato Inicial</Label>
                   <Combobox
                     options={contatosOptions}
                     value={contatoNumero}
                     onValueChange={setContatoNumero}
                     placeholder="Selecione um contato..."
-                    searchPlaceholder="Buscar por nome ou número..."
+                    searchPlaceholder="Buscar..."
                     emptyMessage="Nenhum contato encontrado."
                     loading={contatosLoading}
                   />
-                  <p className="text-xs text-muted-foreground">
-                    Selecione um contato existente ou adicione novos contatos na página de Contatos
-                  </p>
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="instance">Instância WhatsApp</Label>
+                  <Label htmlFor="instance">Instância</Label>
                   <select
                     id="instance"
                     value={instanceName}
                     onChange={(e) => setInstanceName(e.target.value)}
                     required
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                   >
                     <option value="" disabled>
-                      Selecione uma instância conectada
+                      Selecione uma instância
                     </option>
                     {connectedInstances.length === 0 ? (
                       <option value="" disabled>
@@ -228,85 +331,43 @@ export default function GruposPage() {
                     ) : (
                       connectedInstances.map((instance: any) => (
                         <option key={instance.id} value={instance.instanceName}>
-                          {instance.displayName || instance.instanceName} ({instance.numero})
+                          {instance.displayName || instance.instanceName}
                         </option>
                       ))
                     )}
                   </select>
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="descricao">Descrição do Grupo (Opcional)</Label>
+                  <Label htmlFor="descricao">Descrição (Opcional)</Label>
                   <textarea
                     id="descricao"
-                    placeholder="Ex: Grupo para divulgação de produtos"
+                    placeholder="Descrição do grupo"
                     value={descricao}
                     onChange={(e) => setDescricao(e.target.value)}
-                    rows={3}
-                    className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 resize-none"
+                    rows={2}
+                    className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none"
                   />
                 </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="imagem">Foto do Grupo (Opcional)</Label>
-                  <Input
-                    id="imagem"
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => setImagemFile(e.target.files?.[0] || null)}
-                    className="cursor-pointer"
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="somenteAdminsEnviam"
+                    checked={somenteAdminsEnviam}
+                    onChange={(e) => setSomenteAdminsEnviam(e.target.checked)}
+                    className="h-4 w-4"
                   />
-                  <p className="text-xs text-muted-foreground">
-                    Formatos aceitos: JPG, PNG. Tamanho máximo: 5MB
-                  </p>
-                </div>
-                <div className="grid gap-3 pt-2 border-t">
-                  <Label className="text-base font-semibold">Permissões do Grupo</Label>
-                  <div className="flex items-start space-x-3">
-                    <input
-                      type="checkbox"
-                      id="somenteAdminsEnviam"
-                      checked={somenteAdminsEnviam}
-                      onChange={(e) => setSomenteAdminsEnviam(e.target.checked)}
-                      className="mt-1 h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
-                    />
-                    <div className="flex-1">
-                      <Label htmlFor="somenteAdminsEnviam" className="cursor-pointer font-medium">
-                        Somente admins podem enviar mensagens
-                      </Label>
-                      <p className="text-xs text-muted-foreground">
-                        Quando ativado, apenas administradores podem enviar mensagens no grupo
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-start space-x-3">
-                    <input
-                      type="checkbox"
-                      id="somenteAdminsEditam"
-                      checked={somenteAdminsEditam}
-                      onChange={(e) => setSomenteAdminsEditam(e.target.checked)}
-                      className="mt-1 h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
-                    />
-                    <div className="flex-1">
-                      <Label htmlFor="somenteAdminsEditam" className="cursor-pointer font-medium">
-                        Somente admins podem editar configurações
-                      </Label>
-                      <p className="text-xs text-muted-foreground">
-                        Quando ativado, apenas administradores podem alterar nome, foto e descrição do grupo
-                      </p>
-                    </div>
-                  </div>
+                  <Label htmlFor="somenteAdminsEnviam" className="text-sm">
+                    Somente admins enviam mensagens
+                  </Label>
                 </div>
               </div>
               <DialogFooter>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => setOpen(false)}
-                  disabled={createGroupMutation.isPending}
-                >
+                <Button type="button" variant="secondary" onClick={() => setOpen(false)}>
                   Cancelar
                 </Button>
                 <Button
                   type="submit"
+                  variant="primary"
                   disabled={createGroupMutation.isPending || connectedInstances.length === 0}
                 >
                   {createGroupMutation.isPending ? 'Criando...' : 'Criar Grupo'}
@@ -317,120 +378,190 @@ export default function GruposPage() {
         </Dialog>
       </div>
 
-      {/* Info Card */}
-      <Card className="border-primary/20 bg-primary/5">
-        <CardContent className="pt-6">
-          <div className="flex items-start gap-4">
-            <div className="p-2 rounded-lg bg-primary/10">
-              <List className="h-6 w-6 text-primary" />
-            </div>
-            <div className="flex-1">
-              <h3 className="font-semibold text-primary mb-2">
-                Como Funcionam os Grupos
-              </h3>
-              <ul className="text-sm space-y-1.5 text-muted-foreground">
-                <li className="flex items-center gap-2">
-                  <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-                  Grupos são criados automaticamente via Evolution API
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-                  Capacidade máxima configurável (padrão: 256 membros)
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-                  Participantes são adicionados automaticamente
-                </li>
-              </ul>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
       {/* Lista de Grupos */}
       {isLoading ? (
-        <div className="text-center py-12">Carregando...</div>
+        <div className="text-center py-12">
+          <RefreshCw className="h-8 w-8 animate-spin mx-auto text-primary" />
+          <p className="mt-2 text-muted-foreground">Carregando grupos...</p>
+        </div>
       ) : grupos?.length === 0 ? (
-        <Card>
+        <Card className="border-border">
           <CardContent className="flex flex-col items-center justify-center py-12">
-            <List className="h-16 w-16 text-muted-foreground mb-4" />
-            <p className="text-lg font-medium">Nenhum grupo criado ainda</p>
+            <Users className="h-16 w-16 text-muted-foreground mb-4" />
+            <p className="text-lg font-medium">Nenhum grupo criado</p>
             <p className="text-sm text-muted-foreground mt-2">
-              Os grupos serão criados automaticamente quando você adicionar contatos
+              Clique em "Criar Grupo" para começar
             </p>
           </CardContent>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {grupos?.map((grupo: any) => (
-            <Card key={grupo.id}>
-              <CardHeader>
-                <CardTitle className="text-lg flex items-center justify-between">
-                  {grupo.nome}
-                  <Badge variant={grupo.status === 'ativo' ? 'success' : 'secondary'}>
-                    {grupo.status}
-                  </Badge>
-                </CardTitle>
-                <CardDescription>Grupo #{grupo.numeroGrupo}</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2 text-sm">
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">Membros:</span>
-                    <span className="font-medium">{grupo.totalMembros}/{grupo.capacidadeMaxima}</span>
+        <div className="space-y-4">
+          {grupos?.map((grupo: Grupo) => (
+            <Card key={grupo.id} className="border-border overflow-hidden">
+              {/* Header do Grupo */}
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg bg-primary/10">
+                      <Users className="h-5 w-5 text-primary" />
+                    </div>
+                    <div>
+                      <CardTitle className="text-lg">{grupo.nome}</CardTitle>
+                      <p className="text-sm text-muted-foreground">
+                        {grupo.totalMembros} / {grupo.capacidadeMaxima} membros
+                      </p>
+                    </div>
                   </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant={grupo.status === 'ativo' ? 'success' : 'secondary'}>
+                      {grupo.status}
+                    </Badge>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() =>
+                        setExpandedGrupo(expandedGrupo === grupo.id ? null : grupo.id)
+                      }
+                    >
+                      {expandedGrupo === grupo.id ? (
+                        <ChevronUp className="h-4 w-4" />
+                      ) : (
+                        <ChevronDown className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+
+              {/* Ações do Grupo */}
+              <CardContent className="pt-0 pb-3 border-b border-border">
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => syncMutation.mutate(grupo.id)}
+                    disabled={syncMutation.isPending || !grupo.whatsappGroupId}
+                  >
+                    <RefreshCw
+                      className={`mr-1.5 h-4 w-4 ${syncMutation.isPending ? 'animate-spin' : ''}`}
+                    />
+                    Sincronizar
+                  </Button>
+
                   {grupo.linkConvite && (
                     <Button
-                      type="button"
                       variant="secondary"
                       size="sm"
-                      className="w-full cursor-pointer"
-                      onClick={(e) => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                        navigator.clipboard.writeText(grupo.linkConvite)
+                      onClick={() => {
+                        navigator.clipboard.writeText(grupo.linkConvite!)
                         toast.success('Link copiado!')
                       }}
                     >
-                      <MessageSquare className="mr-2 h-4 w-4" />
+                      <Copy className="mr-1.5 h-4 w-4" />
                       Copiar Link
                     </Button>
                   )}
+
                   {grupoToDelete === grupo.id ? (
-                    <button
-                      type="button"
-                      className="w-full inline-flex items-center justify-center h-8 px-3 text-sm rounded-md font-bold transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 bg-red-600 text-white hover:bg-red-700 shadow-md hover:shadow-lg cursor-pointer animate-pulse"
-                      onClick={(e) => {
-                        e.preventDefault()
-                        e.stopPropagation()
+                    <Button
+                      variant="danger"
+                      size="sm"
+                      onClick={() => {
                         deleteGroupMutation.mutate(grupo.id)
                         setGrupoToDelete(null)
                       }}
-                      onBlur={() => {
-                        setTimeout(() => setGrupoToDelete(null), 200)
-                      }}
+                      onBlur={() => setTimeout(() => setGrupoToDelete(null), 200)}
                       autoFocus
                     >
-                      <Trash2 className="mr-2 h-4 w-4" />
-                      Confirmar Exclusão?
-                    </button>
+                      <Trash2 className="mr-1.5 h-4 w-4" />
+                      Confirmar?
+                    </Button>
                   ) : (
-                    <button
-                      type="button"
-                      className="w-full inline-flex items-center justify-center h-8 px-3 text-sm rounded-md font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 bg-red-600 text-white hover:bg-red-700 active:bg-red-800 shadow-md hover:shadow-lg cursor-pointer disabled:opacity-50"
-                      onClick={(e) => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                        setGrupoToDelete(grupo.id)
-                      }}
-                      disabled={deleteGroupMutation.isPending}
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setGrupoToDelete(grupo.id)}
                     >
-                      <Trash2 className="mr-2 h-4 w-4" />
-                      {deleteGroupMutation.isPending ? 'Deletando...' : 'Deletar Grupo'}
-                    </button>
+                      <Trash2 className="mr-1.5 h-4 w-4" />
+                      Deletar
+                    </Button>
                   )}
+
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground ml-auto">
+                    <Clock className="h-3.5 w-3.5" />
+                    Sincronizado: {formatDate(grupo.ultimaSincronizacao)}
+                  </div>
                 </div>
               </CardContent>
+
+              {/* Tabela de Membros (expandido) */}
+              {expandedGrupo === grupo.id && (
+                <CardContent className="pt-4">
+                  {membrosLoading ? (
+                    <div className="text-center py-8">
+                      <RefreshCw className="h-6 w-6 animate-spin mx-auto text-primary" />
+                      <p className="mt-2 text-sm text-muted-foreground">Carregando membros...</p>
+                    </div>
+                  ) : membrosData?.membros?.length === 0 ? (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <Users className="h-10 w-10 mx-auto mb-2 opacity-50" />
+                      <p>Nenhum membro sincronizado</p>
+                      <p className="text-xs mt-1">Clique em "Sincronizar" para buscar membros</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-border">
+                            <th className="text-left py-2 px-3 font-medium">Membro</th>
+                            <th className="text-left py-2 px-3 font-medium">Número</th>
+                            <th className="text-left py-2 px-3 font-medium">Função</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {membrosData?.membros?.map((membro: Membro) => (
+                            <tr key={membro.id} className="border-b border-border/50 hover:bg-muted/30">
+                              <td className="py-2 px-3">
+                                <div className="flex items-center gap-2">
+                                  {membro.ehSuperAdmin ? (
+                                    <Crown className="h-4 w-4 text-yellow-500" />
+                                  ) : membro.ehAdmin ? (
+                                    <Shield className="h-4 w-4 text-blue-500" />
+                                  ) : (
+                                    <User className="h-4 w-4 text-muted-foreground" />
+                                  )}
+                                  <span>{membro.nome || 'Sem nome'}</span>
+                                </div>
+                              </td>
+                              <td className="py-2 px-3">
+                                <div className="flex items-center gap-1.5">
+                                  <Phone className="h-3.5 w-3.5 text-muted-foreground" />
+                                  <span className="font-mono text-xs">
+                                    {formatPhone(membro.numero)}
+                                  </span>
+                                </div>
+                              </td>
+                              <td className="py-2 px-3">
+                                {membro.ehSuperAdmin ? (
+                                  <Badge className="bg-yellow-500/10 text-yellow-600 border-yellow-500/20">
+                                    Criador
+                                  </Badge>
+                                ) : membro.ehAdmin ? (
+                                  <Badge className="bg-blue-500/10 text-blue-600 border-blue-500/20">
+                                    Admin
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="secondary">Membro</Badge>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </CardContent>
+              )}
             </Card>
           ))}
         </div>
