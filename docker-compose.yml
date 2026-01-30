@@ -128,6 +128,14 @@ services:
       NEXT_PUBLIC_APP_URL: http://localhost:3000
       NODE_ENV: production
 
+      # Admin Auth
+      ADMIN_USERNAME: admin
+      ADMIN_PASSWORD: admin123
+
+      # Security
+      JWT_SECRET: telegrafo-jwt-secret-key-2024-muito-segura
+      SESSION_SECRET: sua-chave-secreta-muito-forte-aqui-troque-em-producao
+
       # Webhook
       WEBHOOK_SECRET: webhook-secret-super-seguro-123
 
