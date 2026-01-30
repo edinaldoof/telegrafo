@@ -1,11 +1,12 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '@/lib/auth/context'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { MessageSquare, Eye, EyeOff, AlertCircle, ArrowRight } from 'lucide-react'
+import { Turnstile } from '@/components/turnstile'
 
 function getErrorMessage(err: unknown): string {
   if (typeof err === 'string') return err
@@ -31,6 +32,15 @@ export default function LoginPage() {
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [mounted, setMounted] = useState(false)
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
+
+  const handleTurnstileVerify = useCallback((token: string) => {
+    setTurnstileToken(token)
+  }, [])
+
+  const handleTurnstileExpire = useCallback(() => {
+    setTurnstileToken(null)
+  }, [])
 
   useEffect(() => {
     setMounted(true)
@@ -42,7 +52,7 @@ export default function LoginPage() {
     setIsLoading(true)
 
     try {
-      await login(username, password)
+      await login(username, password, turnstileToken || undefined)
     } catch (err) {
       setError(getErrorMessage(err))
     } finally {
@@ -161,11 +171,20 @@ export default function LoginPage() {
               </div>
             </div>
 
+            {process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY && (
+              <div className="flex justify-center">
+                <Turnstile
+                  onVerify={handleTurnstileVerify}
+                  onExpire={handleTurnstileExpire}
+                />
+              </div>
+            )}
+
             <Button
               type="submit"
               variant="primary"
               className="w-full h-11 mt-2 shadow-md shadow-primary/15"
-              disabled={isLoading || !username || !password}
+              disabled={isLoading || !username || !password || (!!process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY && !turnstileToken)}
             >
               {isLoading ? (
                 <div className="flex items-center gap-2">

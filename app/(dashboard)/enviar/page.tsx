@@ -523,57 +523,92 @@ export default function EnviarPage() {
           </div>
 
           <div className="space-y-6">
-            {tagsDisponiveis.length > 0 && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Enviar por Tags</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex flex-wrap gap-2">
-                    {tagsDisponiveis.map((tag) => (
-                      <Badge
-                        key={tag.id}
-                        variant={tagsSelecionadas.includes(tag.id) ? 'default' : 'secondary'}
-                        className="cursor-pointer"
-                        style={tagsSelecionadas.includes(tag.id) ? { backgroundColor: tag.cor || '#3B82F6' } : {}}
-                        onClick={() => toggleTag(tag.id)}
-                      >
-                        {tag.nome} ({tag.totalContatos || 0})
-                      </Badge>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg">Contatos</CardTitle>
-                <CardDescription>{contatosSelecionados.length} selecionado(s)</CardDescription>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Users className="h-5 w-5" />
+                  Destinatarios
+                </CardTitle>
+                <CardDescription>
+                  Selecione categorias e/ou contatos individuais
+                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="flex gap-2">
-                  <Input
-                    placeholder="Buscar..."
-                    value={busca}
-                    onChange={(e) => setBusca(e.target.value)}
-                    className="flex-1"
-                  />
-                  <Button variant="secondary" size="sm" onClick={selecionarTodos}>
-                    {contatosSelecionados.length === contatosFiltrados.length ? 'Limpar' : 'Todos'}
-                  </Button>
-                </div>
-                <div className="border rounded-lg p-3 max-h-64 overflow-y-auto space-y-2">
-                  {contatosFiltrados.map((contato: any) => (
-                    <div key={contato.id} className="flex items-center space-x-2">
-                      <Checkbox
-                        checked={contatosSelecionados.includes(contato.id)}
-                        onCheckedChange={() => toggleContato(contato.id)}
-                      />
-                      <span className="text-sm">{contato.nome} ({contato.numeroWhatsapp})</span>
+                {/* Secao 1: Categorias (Tags) */}
+                {tagsDisponiveis.length > 0 && (
+                  <div className="space-y-3">
+                    <Label className="text-sm font-medium">Categorias</Label>
+                    <div className="flex flex-wrap gap-2">
+                      {tagsDisponiveis.map((tag) => (
+                        <Badge
+                          key={tag.id}
+                          variant={tagsSelecionadas.includes(tag.id) ? 'default' : 'secondary'}
+                          className="cursor-pointer text-sm px-3 py-1.5 transition-all hover:scale-105"
+                          style={tagsSelecionadas.includes(tag.id) ? { backgroundColor: tag.cor || '#3B82F6' } : {}}
+                          onClick={() => toggleTag(tag.id)}
+                        >
+                          {tag.nome} ({tag.totalContatos || 0})
+                        </Badge>
+                      ))}
                     </div>
-                  ))}
-                </div>
+                    {tagsSelecionadas.length > 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        {totalContatosTags} contato(s) via categorias
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Secao 2: Contatos Individuais (colapsavel) */}
+                <details className="group">
+                  <summary className="cursor-pointer text-sm font-medium text-muted-foreground hover:text-foreground transition-colors list-none flex items-center gap-2 py-2 border-t pt-4">
+                    <span className="text-xs group-open:rotate-90 transition-transform">&#9654;</span>
+                    Adicionar contatos individualmente
+                    {contatosSelecionados.length > 0 && (
+                      <Badge variant="secondary" className="text-xs">
+                        {contatosSelecionados.length} selecionado(s)
+                      </Badge>
+                    )}
+                  </summary>
+                  <div className="mt-3 space-y-3">
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="Buscar..."
+                        value={busca}
+                        onChange={(e) => setBusca(e.target.value)}
+                        className="flex-1"
+                      />
+                      <Button variant="secondary" size="sm" onClick={selecionarTodos}>
+                        {contatosSelecionados.length === contatosFiltrados.length ? 'Limpar' : 'Todos'}
+                      </Button>
+                    </div>
+                    <div className="border rounded-lg p-3 max-h-64 overflow-y-auto space-y-2">
+                      {contatosFiltrados.map((contato: any) => (
+                        <div key={contato.id} className="flex items-center space-x-2">
+                          <Checkbox
+                            checked={contatosSelecionados.includes(contato.id)}
+                            onCheckedChange={() => toggleContato(contato.id)}
+                          />
+                          <span className="text-sm">{contato.nome} ({contato.numeroWhatsapp})</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </details>
+
+                {/* Rodape: Total */}
+                {totalDestinatarios > 0 && (
+                  <div className="border-t pt-3 flex items-center justify-between">
+                    <span className="text-sm font-medium">
+                      Total: {totalDestinatarios} destinatario(s)
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {tagsSelecionadas.length > 0 && `${totalContatosTags} via categorias`}
+                      {tagsSelecionadas.length > 0 && contatosSelecionados.length > 0 && ' + '}
+                      {contatosSelecionados.length > 0 && `${contatosSelecionados.length} individuais`}
+                    </span>
+                  </div>
+                )}
               </CardContent>
             </Card>
 

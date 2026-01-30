@@ -1,7 +1,8 @@
 'use client'
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Users, Plus, Upload, Download, Loader2, Pencil, Trash2, X, Filter, Tags, FileText, RefreshCw, GraduationCap, CheckCircle, Clock, UserPlus } from 'lucide-react'
+import { Users, Plus, Upload, Download, Loader2, Pencil, Trash2, X, Filter, Tags, FileText, RefreshCw, GraduationCap, CheckCircle, Clock, UserPlus, ChevronUp, ChevronDown, ChevronsUpDown, ArrowLeft, ArrowRight } from 'lucide-react'
+import { Checkbox } from '@/components/ui/checkbox'
 import { jsPDF } from 'jspdf'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -52,6 +53,20 @@ export default function ContatosPage() {
   const [isBatchTagDialogOpen, setIsBatchTagDialogOpen] = useState(false)
   const [batchTagId, setBatchTagId] = useState<string>('')
   const [batchQuantidade, setBatchQuantidade] = useState<string>('100')
+
+  // Pagination state
+  const [page, setPage] = useState(1)
+  const [pageSize] = useState(25)
+
+  // Sort state
+  const [sortField, setSortField] = useState<'nome' | 'numeroWhatsapp' | 'createdAt'>('nome')
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc')
+
+  // Mass selection state
+  const [selectedIds, setSelectedIds] = useState<number[]>([])
+  const [isMassTagDialogOpen, setIsMassTagDialogOpen] = useState(false)
+  const [isMassRemoveTagDialogOpen, setIsMassRemoveTagDialogOpen] = useState(false)
+  const [massTagId, setMassTagId] = useState<string>('')
 
   // Form state
   const [formData, setFormData] = useState({
@@ -229,6 +244,75 @@ export default function ContatosPage() {
     },
   })
 
+  // Mutation para adicionar tag em massa (selecionados)
+  const massAddTagMutation = useMutation({
+    mutationFn: async ({ contatoIds, tagId }: { contatoIds: number[]; tagId: number }) => {
+      const res = await fetch('/api/tags', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contatoIds, tagId }),
+      })
+      if (!res.ok) {
+        const error = await res.json()
+        throw new Error(error.error || 'Erro ao adicionar tag')
+      }
+      return res.json()
+    },
+    onSuccess: () => {
+      toast.success('Tag adicionada aos contatos selecionados!')
+      queryClient.invalidateQueries({ queryKey: ['contatos'] })
+      queryClient.invalidateQueries({ queryKey: ['tags'] })
+      queryClient.invalidateQueries({ queryKey: ['contatos-sem-tag'] })
+      setIsMassTagDialogOpen(false)
+      setMassTagId('')
+      setSelectedIds([])
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Erro ao adicionar tag')
+    },
+  })
+
+  // Mutation para remover tag em massa (selecionados)
+  const massRemoveTagMutation = useMutation({
+    mutationFn: async ({ contatoIds, tagId }: { contatoIds: number[]; tagId: number }) => {
+      const promises = contatoIds.map((contatoId) =>
+        fetch(`/api/tags?tagId=${tagId}&contatoId=${contatoId}`, { method: 'DELETE' })
+      )
+      await Promise.all(promises)
+    },
+    onSuccess: () => {
+      toast.success('Tag removida dos contatos selecionados!')
+      queryClient.invalidateQueries({ queryKey: ['contatos'] })
+      queryClient.invalidateQueries({ queryKey: ['tags'] })
+      queryClient.invalidateQueries({ queryKey: ['contatos-sem-tag'] })
+      setIsMassRemoveTagDialogOpen(false)
+      setMassTagId('')
+      setSelectedIds([])
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Erro ao remover tag')
+    },
+  })
+
+  // Mutation para deletar em massa
+  const massDeleteMutation = useMutation({
+    mutationFn: async (ids: number[]) => {
+      const promises = ids.map((id) =>
+        fetch(`/api/contatos/${id}`, { method: 'DELETE' })
+      )
+      await Promise.all(promises)
+    },
+    onSuccess: () => {
+      toast.success('Contatos excluidos!')
+      queryClient.invalidateQueries({ queryKey: ['contatos'] })
+      queryClient.invalidateQueries({ queryKey: ['contatos-sem-tag'] })
+      setSelectedIds([])
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Erro ao excluir contatos')
+    },
+  })
+
   // Buscar tags disponíveis
   const { data: tagsData } = useQuery({
     queryKey: ['tags'],
@@ -275,6 +359,73 @@ export default function ContatosPage() {
         return tags.some((t: any) => t.tag?.id === tagId || t.id === tagId)
       })
     : []
+
+  // Sort contatos
+  const contatosSorted = [...contatos].sort((a: any, b: any) => {
+    let valA: string = ''
+    let valB: string = ''
+    if (sortField === 'nome') {
+      valA = (a.nome || a.nomeContato || a.numeroWhatsapp || '').toLowerCase()
+      valB = (b.nome || b.nomeContato || b.numeroWhatsapp || '').toLowerCase()
+    } else if (sortField === 'numeroWhatsapp') {
+      valA = a.numeroWhatsapp || ''
+      valB = b.numeroWhatsapp || ''
+    } else if (sortField === 'createdAt') {
+      valA = a.createdAt || a.criadoEm || ''
+      valB = b.createdAt || b.criadoEm || ''
+    }
+    const cmp = valA.localeCompare(valB)
+    return sortOrder === 'asc' ? cmp : -cmp
+  })
+
+  // Pagination
+  const totalPages = Math.max(1, Math.ceil(contatosSorted.length / pageSize))
+  const currentPage = Math.min(page, totalPages)
+  const contatosPaginated = contatosSorted.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+
+  // Reset page when filter changes
+  const handleFiltroTagChange = (value: string) => {
+    setFiltroTag(value)
+    setPage(1)
+    setSelectedIds([])
+  }
+
+  // Sort toggle
+  const toggleSort = (field: 'nome' | 'numeroWhatsapp' | 'createdAt') => {
+    if (sortField === field) {
+      setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortField(field)
+      setSortOrder('asc')
+    }
+    setPage(1)
+  }
+
+  const SortIcon = ({ field }: { field: string }) => {
+    if (sortField !== field) return <ChevronsUpDown className="h-3 w-3 ml-1 opacity-50" />
+    return sortOrder === 'asc'
+      ? <ChevronUp className="h-3 w-3 ml-1" />
+      : <ChevronDown className="h-3 w-3 ml-1" />
+  }
+
+  // Mass selection helpers
+  const pageIds = contatosPaginated.map((c: any) => c.id)
+  const allPageSelected = pageIds.length > 0 && pageIds.every((id: number) => selectedIds.includes(id))
+  const somePageSelected = pageIds.some((id: number) => selectedIds.includes(id))
+
+  const toggleSelectAll = () => {
+    if (allPageSelected) {
+      setSelectedIds(prev => prev.filter(id => !pageIds.includes(id)))
+    } else {
+      setSelectedIds(prev => [...new Set([...prev, ...pageIds])])
+    }
+  }
+
+  const toggleSelectOne = (id: number) => {
+    setSelectedIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    )
+  }
 
   // Helper para obter tags de um contato (normaliza formato)
   const getContatoTags = (contato: any): Array<{ id?: number; nome: string; cor?: string }> => {
@@ -707,7 +858,7 @@ export default function ContatosPage() {
             className="hidden"
           />
           {/* Filtro por Tag */}
-          <Select value={filtroTag} onValueChange={setFiltroTag}>
+          <Select value={filtroTag} onValueChange={handleFiltroTagChange}>
             <SelectTrigger className="w-full sm:w-[180px]">
               <Filter className="h-4 w-4 mr-2" />
               <SelectValue placeholder="Filtrar por tag" />
@@ -728,7 +879,7 @@ export default function ContatosPage() {
               ))}
             </SelectContent>
           </Select>
-          {filtroTag === 'sem-tag' && totalSemTag > 0 && (
+          {totalSemTag > 0 && (
             <Button
               variant="secondary"
               size="lg"
@@ -739,7 +890,10 @@ export default function ContatosPage() {
               }}
             >
               <UserPlus className="mr-2 h-4 w-4" />
-              Adicionar a Tag ({totalSemTag})
+              Adicionar a Tag
+              <Badge variant="destructive" className="ml-2 text-xs">
+                {totalSemTag}
+              </Badge>
             </Button>
           )}
           <Button
@@ -844,12 +998,65 @@ export default function ContatosPage() {
         </Card>
       </div>
 
+      {/* Barra de acoes em massa (flutuante) */}
+      {selectedIds.length > 0 && (
+        <div className="sticky top-0 z-20 bg-primary/10 border border-primary/30 rounded-lg p-3 flex flex-wrap items-center gap-3 shadow-lg">
+          <span className="text-sm font-medium">{selectedIds.length} selecionado(s)</span>
+          <div className="flex gap-2 flex-wrap">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                setMassTagId('')
+                setIsMassTagDialogOpen(true)
+              }}
+            >
+              <Tags className="h-4 w-4 mr-1" />
+              Adicionar Tag
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                setMassTagId('')
+                setIsMassRemoveTagDialogOpen(true)
+              }}
+            >
+              <X className="h-4 w-4 mr-1" />
+              Remover Tag
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                if (confirm(`Deseja excluir ${selectedIds.length} contato(s)?`)) {
+                  massDeleteMutation.mutate(selectedIds)
+                }
+              }}
+              disabled={massDeleteMutation.isPending}
+            >
+              <Trash2 className="h-4 w-4 mr-1 text-red-500" />
+              Excluir
+            </Button>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="ml-auto"
+            onClick={() => setSelectedIds([])}
+          >
+            Limpar selecao
+          </Button>
+        </div>
+      )}
+
       {/* Tabela de Contatos */}
       <Card>
         <CardHeader>
           <CardTitle>Lista de Contatos</CardTitle>
           <CardDescription>
             {Array.isArray(contatos) ? contatos.length : 0} contatos no total
+            {contatos.length > pageSize && ` | Pagina ${currentPage} de ${totalPages}`}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -874,85 +1081,158 @@ export default function ContatosPage() {
               </Button>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Nome</TableHead>
-                    <TableHead>Telefone</TableHead>
-                    <TableHead className="hidden sm:table-cell">Email</TableHead>
-                    <TableHead className="hidden md:table-cell">Empresa</TableHead>
-                    <TableHead className="hidden lg:table-cell">Tags</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Ações</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {contatos.slice(0, 50).map((contato: any) => {
-                    const contatoTags = getContatoTags(contato)
-                    return (
-                      <TableRow key={contato.id}>
-                        <TableCell className="font-medium">
-                          {contato.nome || contato.nomeContato || contato.numeroWhatsapp}
-                        </TableCell>
-                        <TableCell>{contato.numeroWhatsapp}</TableCell>
-                        <TableCell className="hidden sm:table-cell">{contato.email || '-'}</TableCell>
-                        <TableCell className="hidden md:table-cell">{contato.empresa || '-'}</TableCell>
-                        <TableCell className="hidden lg:table-cell">
-                          {contatoTags.length > 0 ? (
-                            <div className="flex flex-wrap gap-1">
-                              {contatoTags.slice(0, 3).map((tag, idx) => (
-                                <Badge
-                                  key={idx}
-                                  variant="secondary"
-                                  className="text-xs"
-                                  style={{
-                                    borderColor: tag.cor || '#6B7280',
-                                    color: tag.cor || '#6B7280',
-                                  }}
-                                >
-                                  {tag.nome}
-                                </Badge>
-                              ))}
-                              {contatoTags.length > 3 && (
-                                <Badge variant="secondary" className="text-xs">
-                                  +{contatoTags.length - 3}
-                                </Badge>
-                              )}
+            <>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-10">
+                        <Checkbox
+                          checked={allPageSelected}
+                          onCheckedChange={toggleSelectAll}
+                          aria-label="Selecionar todos da pagina"
+                        />
+                      </TableHead>
+                      <TableHead
+                        className="cursor-pointer select-none"
+                        onClick={() => toggleSort('nome')}
+                      >
+                        <span className="flex items-center">
+                          Nome
+                          <SortIcon field="nome" />
+                        </span>
+                      </TableHead>
+                      <TableHead
+                        className="cursor-pointer select-none"
+                        onClick={() => toggleSort('numeroWhatsapp')}
+                      >
+                        <span className="flex items-center">
+                          Telefone
+                          <SortIcon field="numeroWhatsapp" />
+                        </span>
+                      </TableHead>
+                      <TableHead className="hidden sm:table-cell">Email</TableHead>
+                      <TableHead className="hidden md:table-cell">Empresa</TableHead>
+                      <TableHead className="hidden lg:table-cell">Tags</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Acoes</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {contatosPaginated.map((contato: any) => {
+                      const contatoTags = getContatoTags(contato)
+                      const isSelected = selectedIds.includes(contato.id)
+                      return (
+                        <TableRow key={contato.id} className={isSelected ? 'bg-primary/5' : ''}>
+                          <TableCell>
+                            <Checkbox
+                              checked={isSelected}
+                              onCheckedChange={() => toggleSelectOne(contato.id)}
+                            />
+                          </TableCell>
+                          <TableCell className="font-medium">
+                            {contato.nome || contato.nomeContato || contato.numeroWhatsapp}
+                          </TableCell>
+                          <TableCell>{contato.numeroWhatsapp}</TableCell>
+                          <TableCell className="hidden sm:table-cell">{contato.email || '-'}</TableCell>
+                          <TableCell className="hidden md:table-cell">{contato.empresa || '-'}</TableCell>
+                          <TableCell className="hidden lg:table-cell">
+                            {contatoTags.length > 0 ? (
+                              <div className="flex flex-wrap gap-1">
+                                {contatoTags.slice(0, 3).map((tag, idx) => (
+                                  <Badge
+                                    key={idx}
+                                    variant="secondary"
+                                    className="text-xs cursor-pointer hover:line-through"
+                                    style={{
+                                      borderColor: tag.cor || '#6B7280',
+                                      color: tag.cor || '#6B7280',
+                                    }}
+                                    title={`Clique para remover "${tag.nome}"`}
+                                    onClick={async () => {
+                                      if (tag.id && confirm(`Remover tag "${tag.nome}" deste contato?`)) {
+                                        await fetch(`/api/tags?tagId=${tag.id}&contatoId=${contato.id}`, { method: 'DELETE' })
+                                        queryClient.invalidateQueries({ queryKey: ['contatos'] })
+                                        queryClient.invalidateQueries({ queryKey: ['tags'] })
+                                        toast.success(`Tag "${tag.nome}" removida`)
+                                      }
+                                    }}
+                                  >
+                                    {tag.nome}
+                                  </Badge>
+                                ))}
+                                {contatoTags.length > 3 && (
+                                  <Badge variant="secondary" className="text-xs">
+                                    +{contatoTags.length - 3}
+                                  </Badge>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground text-xs">-</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={contato.ativo ? 'success' : 'secondary'}>
+                              {contato.ativo ? 'Ativo' : 'Inativo'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex justify-end gap-2">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleOpenDialog(contato)}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleDelete(contato)}
+                              >
+                                <Trash2 className="h-4 w-4 text-red-500" />
+                              </Button>
                             </div>
-                          ) : (
-                            <span className="text-muted-foreground text-xs">-</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={contato.ativo ? 'success' : 'secondary'}>
-                            {contato.ativo ? 'Ativo' : 'Inativo'}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-2">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleOpenDialog(contato)}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleDelete(contato)}
-                            >
-                              <Trash2 className="h-4 w-4 text-red-500" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })}
-                </TableBody>
-              </Table>
-            </div>
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* Pagination Controls */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between mt-4 pt-4 border-t">
+                  <p className="text-sm text-muted-foreground">
+                    Mostrando {((currentPage - 1) * pageSize) + 1}-{Math.min(currentPage * pageSize, contatosSorted.length)} de {contatosSorted.length}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setPage(p => Math.max(1, p - 1))}
+                      disabled={currentPage === 1}
+                    >
+                      <ArrowLeft className="h-4 w-4 mr-1" />
+                      Anterior
+                    </Button>
+                    <span className="text-sm font-medium px-2">
+                      {currentPage} / {totalPages}
+                    </span>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                      disabled={currentPage >= totalPages}
+                    >
+                      Proximo
+                      <ArrowRight className="h-4 w-4 ml-1" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>
@@ -1304,6 +1584,115 @@ export default function ContatosPage() {
                 )}
               </Button>
             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog para Adicionar Tag em Massa (selecionados) */}
+      <Dialog open={isMassTagDialogOpen} onOpenChange={setIsMassTagDialogOpen}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle>Adicionar Tag aos Selecionados</DialogTitle>
+            <DialogDescription>
+              Adicionar tag a {selectedIds.length} contato(s) selecionado(s)
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <Select value={massTagId} onValueChange={setMassTagId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Selecione uma tag" />
+              </SelectTrigger>
+              <SelectContent>
+                {tagsDisponiveis.map((tag) => (
+                  <SelectItem key={tag.id} value={String(tag.id)}>
+                    <div className="flex items-center gap-2">
+                      <div
+                        className="w-3 h-3 rounded-full"
+                        style={{ backgroundColor: tag.cor || '#6B7280' }}
+                      />
+                      {tag.nome}
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setIsMassTagDialogOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={() => {
+                const tagId = parseInt(massTagId)
+                if (!tagId) {
+                  toast.error('Selecione uma tag')
+                  return
+                }
+                massAddTagMutation.mutate({ contatoIds: selectedIds, tagId })
+              }}
+              disabled={massAddTagMutation.isPending || !massTagId}
+            >
+              {massAddTagMutation.isPending ? (
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Adicionando...</>
+              ) : (
+                'Adicionar Tag'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog para Remover Tag em Massa (selecionados) */}
+      <Dialog open={isMassRemoveTagDialogOpen} onOpenChange={setIsMassRemoveTagDialogOpen}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle>Remover Tag dos Selecionados</DialogTitle>
+            <DialogDescription>
+              Remover tag de {selectedIds.length} contato(s) selecionado(s)
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <Select value={massTagId} onValueChange={setMassTagId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Selecione a tag a remover" />
+              </SelectTrigger>
+              <SelectContent>
+                {tagsDisponiveis.map((tag) => (
+                  <SelectItem key={tag.id} value={String(tag.id)}>
+                    <div className="flex items-center gap-2">
+                      <div
+                        className="w-3 h-3 rounded-full"
+                        style={{ backgroundColor: tag.cor || '#6B7280' }}
+                      />
+                      {tag.nome}
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setIsMassRemoveTagDialogOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              variant="danger"
+              onClick={() => {
+                const tagId = parseInt(massTagId)
+                if (!tagId) {
+                  toast.error('Selecione uma tag')
+                  return
+                }
+                massRemoveTagMutation.mutate({ contatoIds: selectedIds, tagId })
+              }}
+              disabled={massRemoveTagMutation.isPending || !massTagId}
+            >
+              {massRemoveTagMutation.isPending ? (
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Removendo...</>
+              ) : (
+                'Remover Tag'
+              )}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

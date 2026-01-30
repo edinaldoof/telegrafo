@@ -7,6 +7,7 @@ import { auditoriaService } from '@/lib/services/auditoria.service'
 const LoginSchema = z.object({
   username: z.string().min(1, 'Username é obrigatório'),
   password: z.string().min(1, 'Password é obrigatório'),
+  turnstileToken: z.string().optional(),
 })
 
 /**
@@ -16,7 +17,36 @@ const LoginSchema = z.object({
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { username, password } = LoginSchema.parse(body)
+    const { username, password, turnstileToken } = LoginSchema.parse(body)
+
+    // Validar Cloudflare Turnstile
+    const turnstileSecret = process.env.TURNSTILE_SECRET_KEY
+    if (turnstileSecret) {
+      if (!turnstileToken) {
+        return NextResponse.json(
+          { error: { message: 'Verificacao de seguranca necessaria' } },
+          { status: 403 }
+        )
+      }
+
+      const turnstileRes = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          secret: turnstileSecret,
+          response: turnstileToken,
+          remoteip: request.headers.get('x-forwarded-for') || '',
+        }),
+      })
+
+      const turnstileData = await turnstileRes.json()
+      if (!turnstileData.success) {
+        return NextResponse.json(
+          { error: { message: 'Verificacao de seguranca falhou. Tente novamente.' } },
+          { status: 403 }
+        )
+      }
+    }
 
     const result = await AuthService.login(username, password)
 

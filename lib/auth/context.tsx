@@ -13,7 +13,7 @@ interface AuthContextType {
   user: User | null
   isLoading: boolean
   isAuthenticated: boolean
-  login: (username: string, password: string) => Promise<void>
+  login: (username: string, password: string, turnstileToken?: string) => Promise<void>
   logout: () => void
   refreshAuth: () => Promise<void>
 }
@@ -87,12 +87,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     checkAuth()
   }, [checkAuth])
 
-  const login = async (username: string, password: string) => {
+  const login = async (username: string, password: string, turnstileToken?: string) => {
     const response = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ username, password, turnstileToken }),
     })
 
     if (!response.ok) {
